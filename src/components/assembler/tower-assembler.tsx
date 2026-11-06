@@ -9,8 +9,11 @@ import {
   Download,
   Layers,
   Loader2,
+  Minus,
+  Plus,
   Ruler,
   Settings2,
+  Sliders,
   Zap,
 } from "lucide-react";
 
@@ -114,6 +117,28 @@ export function TowerAssembler() {
   }
 
   const inputValid = result !== null;
+
+  /**
+   * Update the input string from a partial config override.
+   * This lets the stepper controls (bays_x, bays_y, etc.) directly modify
+   * the tower without the user retyping the dimension string.
+   */
+  function updateFromConfig(patch: Partial<{
+    bays_x: number;
+    bays_y: number;
+    num_lifts: number;
+    bay_length_x: number;
+    bay_length_y: number;
+    lift_height: number;
+  }>) {
+    if (!result) return;
+    const c = { ...result.config, ...patch };
+    // Reconstruct the input string from the new config
+    const lengthM = (c.bays_x * c.bay_length_x / 1000).toFixed(2).replace(/\.?0+$/, "");
+    const widthM = (c.bays_y * c.bay_length_y / 1000).toFixed(2).replace(/\.?0+$/, "");
+    const heightM = ((c.num_lifts * c.lift_height) / 1000).toFixed(2).replace(/\.?0+$/, "");
+    setInput(`${lengthM}x${widthM}x${heightM}m`);
+  }
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
@@ -276,6 +301,69 @@ export function TowerAssembler() {
                         </CardContent>
                       </Card>
 
+                      {/* Advanced controls — adjust bays, lifts, options */}
+                      <Card>
+                        <CardHeader className="pb-3">
+                          <CardTitle className="flex items-center gap-2 text-base">
+                            <Sliders className="size-4" />
+                            Adjust Design
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          {/* Bays X */}
+                          <StepperRow
+                            label="Bays in X (length)"
+                            value={result.config.bays_x}
+                            min={1}
+                            max={6}
+                            onChange={(v) => updateFromConfig({ bays_x: v })}
+                          />
+                          {/* Bays Y */}
+                          <StepperRow
+                            label="Bays in Y (width)"
+                            value={result.config.bays_y}
+                            min={1}
+                            max={4}
+                            onChange={(v) => updateFromConfig({ bays_y: v })}
+                          />
+                          {/* Lifts */}
+                          <StepperRow
+                            label="Lifts (levels)"
+                            value={result.config.num_lifts}
+                            min={1}
+                            max={12}
+                            onChange={(v) => updateFromConfig({ num_lifts: v })}
+                          />
+                          {/* Bay length X */}
+                          <StepperRow
+                            label="Bay length X (mm)"
+                            value={result.config.bay_length_x}
+                            min={1090}
+                            max={3070}
+                            step={500}
+                            onChange={(v) => updateFromConfig({ bay_length_x: v })}
+                          />
+                          {/* Bay length Y */}
+                          <StepperRow
+                            label="Bay length Y (mm)"
+                            value={result.config.bay_length_y}
+                            min={1090}
+                            max={1570}
+                            step={100}
+                            onChange={(v) => updateFromConfig({ bay_length_y: v })}
+                          />
+                          {/* Lift height */}
+                          <StepperRow
+                            label="Lift height (mm)"
+                            value={result.config.lift_height}
+                            min={1000}
+                            max={2500}
+                            step={500}
+                            onChange={(v) => updateFromConfig({ lift_height: v })}
+                          />
+                        </CardContent>
+                      </Card>
+
                       {/* BOM */}
                       <Card>
                         <CardHeader className="pb-3">
@@ -409,4 +497,57 @@ function triggerDownload(blob: Blob, fileName: string): void {
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Stepper row — +/- buttons to adjust a numeric value                       */
+/* -------------------------------------------------------------------------- */
+
+function StepperRow({
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  onChange: (value: number) => void;
+}) {
+  const clamp = (v: number) => Math.min(Math.max(v, min), max);
+  const dec = () => onChange(clamp(value - step));
+  const inc = () => onChange(clamp(value + step));
+
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <div className="flex items-center gap-1">
+        <Button
+          variant="outline"
+          size="sm"
+          className="size-7 p-0"
+          onClick={dec}
+          disabled={value <= min}
+        >
+          <Minus className="size-3" />
+        </Button>
+        <span className="min-w-[3rem] text-center font-mono text-sm font-semibold">
+          {value}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          className="size-7 p-0"
+          onClick={inc}
+          disabled={value >= max}
+        >
+          <Plus className="size-3" />
+        </Button>
+      </div>
+    </div>
+  );
 }

@@ -179,21 +179,29 @@ export function ScaffoldTowerMesh({ config }: { config: TowerConfig }) {
       const z1 = k * lift_height;
       const z2 = (k + 1) * lift_height;
       // X-axis perimeter faces (i=0 left and i=bays_x right)
+      // Add BOTH diagonals (X-pattern) for opposite reinforcing
       for (const i of [0, bays_x] as number[]) {
         const x = i * bay_length_x - towerX / 2;
         for (let j = 0; j < bays_y; j++) {
           const y1 = j * bay_length_y - towerY / 2;
           const y2 = (j + 1) * bay_length_y - towerY / 2;
+          // Diagonal 1: bottom-left → top-right
           items.push({ from: [x, y1, z1], to: [x, y2, z2] });
+          // Diagonal 2: top-left → bottom-right (opposite reinforcing)
+          items.push({ from: [x, y1, z2], to: [x, y2, z1] });
         }
       }
       // Y-axis perimeter faces (j=0 front and j=bays_y back)
+      // Add BOTH diagonals (X-pattern) for opposite reinforcing
       for (const j of [0, bays_y] as number[]) {
         const y = j * bay_length_y - towerY / 2;
         for (let i = 0; i < bays_x; i++) {
           const x1 = i * bay_length_x - towerX / 2;
           const x2 = (i + 1) * bay_length_x - towerX / 2;
+          // Diagonal 1: bottom-left → top-right
           items.push({ from: [x1, y, z1], to: [x2, y, z2] });
+          // Diagonal 2: top-left → bottom-right (opposite reinforcing)
+          items.push({ from: [x1, y, z2], to: [x2, y, z1] });
         }
       }
     }

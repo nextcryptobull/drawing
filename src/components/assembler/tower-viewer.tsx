@@ -3,10 +3,12 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Environment, Grid, OrbitControls } from "@react-three/drei";
+import { Grid3x3, Eye, EyeOff } from "lucide-react";
 
 import type { TowerConfig } from "@/lib/part-types";
 import { ScaffoldTowerMesh } from "@/components/three/ScaffoldTowerMesh";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 
 /**
  * Debounce a value by `delay` ms, comparing by JSON so that deeply-equal
@@ -24,6 +26,7 @@ function useDebouncedValue<T>(value: T, delay: number): T {
 
 export function TowerViewer({ config }: { config: TowerConfig | null }) {
   const debounced = useDebouncedValue(config, 150);
+  const [showGrid, setShowGrid] = useState(true);
 
   // Compute the framing for the tower
   const frame = useMemo(() => {
@@ -57,13 +60,41 @@ export function TowerViewer({ config }: { config: TowerConfig | null }) {
     );
   }
 
+  // Position camera so the tower appears standing upright (not lying down)
+  // Camera at front-right-above, looking at the tower's vertical midpoint
+  const camX = camDist * 1.0;   // right side
+  const camY = -camDist * 0.8;  // front
+  const camZ = frame.height * scale * 0.5 + 2;  // mid-height level
+
   return (
     <div className="relative h-full w-full">
+      {/* Grid toggle button — top-right corner */}
+      <div className="absolute right-3 top-3 z-10">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setShowGrid(!showGrid)}
+          className="bg-black/60 text-white/90 hover:bg-black/80"
+        >
+          {showGrid ? (
+            <>
+              <EyeOff className="mr-1.5 size-3.5" />
+              Hide Grid
+            </>
+          ) : (
+            <>
+              <Eye className="mr-1.5 size-3.5" />
+              Show Grid
+            </>
+          )}
+        </Button>
+      </div>
+
       <Canvas
         key={`tower-${debounced.bays_x}-${debounced.bays_y}-${debounced.num_lifts}`}
         shadows
         camera={{
-          position: [camDist * 0.9, -camDist * 0.7, camDist * 0.5],
+          position: [camX, camY, camZ],
           fov: 38,
           near: 0.1,
           far: 5000,
@@ -73,7 +104,7 @@ export function TowerViewer({ config }: { config: TowerConfig | null }) {
         <color attach="background" args={["#0e0f12"]} />
         <fog attach="fog" args={["#0e0f12", camDist * 1.5, camDist * 4]} />
 
-        <ambientLight intensity={0.35} />
+        <ambientLight intensity={0.4} />
         <directionalLight
           position={[camDist, camDist * 1.2, camDist]}
           intensity={1.6}
@@ -95,20 +126,22 @@ export function TowerViewer({ config }: { config: TowerConfig | null }) {
           <Environment preset="warehouse" />
         </Suspense>
 
-        {/* Floor grid */}
-        <Grid
-          args={[40, 40]}
-          position={[0, 0, 0]}
-          cellSize={0.5}
-          cellThickness={0.6}
-          cellColor="#3a3a42"
-          sectionSize={2.5}
-          sectionThickness={1.1}
-          sectionColor="#6a6a78"
-          fadeDistance={camDist * 2.4}
-          fadeStrength={1}
-          infiniteGrid={false}
-        />
+        {/* Floor grid — toggleable */}
+        {showGrid && (
+          <Grid
+            args={[40, 40]}
+            position={[0, 0, 0]}
+            cellSize={0.5}
+            cellThickness={0.6}
+            cellColor="#3a3a42"
+            sectionSize={2.5}
+            sectionThickness={1.1}
+            sectionColor="#6a6a78"
+            fadeDistance={camDist * 2.4}
+            fadeStrength={1}
+            infiniteGrid={false}
+          />
+        )}
 
         {/* The tower, scaled to "viewing units" */}
         <group scale={scale}>
