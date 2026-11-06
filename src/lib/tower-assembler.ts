@@ -187,10 +187,11 @@ export function assembleTower(input: TowerDimensions): AssemblyResult {
   const ledgersYPerLevel = (bayX.count + 1) * (bayY.count); // along Y
   const ledgers = (ledgersXPerLevel + ledgersYPerLevel) * numLifts;
 
-  // Braces: X-pattern (opposite diagonals) on every perimeter bay face per level
-  // 2 braces per face × perimeter faces × number of levels
+  // Braces: ONE diagonal per perimeter bay face per level
+  // (Real scaffold practice — opposite sides get opposite diagonal directions,
+  // but only ONE diagonal per face, not X-pattern which is impossible to install)
   const perimeterFaces = 2 * (bayX.count + bayY.count);
-  const braces = perimeterFaces * numLifts * 2; // ×2 for opposite reinforcing diagonals
+  const braces = perimeterFaces * numLifts;
 
   // Base jacks: one per standard
   const baseJacks = standards;

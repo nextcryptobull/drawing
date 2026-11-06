@@ -522,16 +522,20 @@ def build_tower(cfg: Dict[str, Any]) -> cq.Assembly:
                     color=cq.Color(0.50, 0.50, 0.55),
                 )
 
-    # Diagonal braces on perimeter faces — X-pattern (opposite reinforcing diagonals)
-    # Two braces per face per level: one bottom-left→top-right, one top-left→bottom-right
+    # Diagonal braces on perimeter faces
+    # Real scaffold practice: ONE diagonal per side, with opposite direction
+    # across (adjacent sides have opposite diagonal directions). NOT X-pattern.
     if include_braces:
         brace_thk = 4.0
         for k in range(num_lifts):
             z1 = k * lift_h
             z2 = (k + 1) * lift_h
-            # X-perimeter faces (i=0 and i=bays_x)
-            for i in [0, bays_x]:
+            # X-perimeter faces (i=0 and i=bays_x) — opposite directions
+            for side_idx in [0, 1]:
+                i = 0 if side_idx == 0 else bays_x
                 x = i * bay_x - tower_x / 2.0
+                # side 0: bottom-left → top-right, side 1: top-left → bottom-right
+                dir_sign = 1 if side_idx == 0 else -1
                 for j in range(bays_y):
                     y1 = j * bay_y - tower_y / 2.0
                     y2 = (j + 1) * bay_y - tower_y / 2.0
@@ -539,33 +543,23 @@ def build_tower(cfg: Dict[str, Any]) -> cq.Assembly:
                     mid_x = x
                     mid_y = (y1 + y2) / 2.0
                     mid_z = (z1 + z2) / 2.0
-                    # Diagonal 1: bottom-left → top-right
-                    brace1 = (
+                    brace = (
                         cq.Workplane("XY")
                         .circle(brace_thk / 2.0)
                         .extrude(brace_len)
                     )
+                    suffix = "A" if dir_sign > 0 else "B"
                     asm.add(
-                        brace1,
-                        name=f"BraceX_L{k}_{i}_{j}_A",
+                        brace,
+                        name=f"BraceX_L{k}_{i}_{j}_{suffix}",
                         loc=cq.Location(cq.Vector(mid_x, mid_y, mid_z)),
                         color=cq.Color(0.30, 0.60, 0.30),
                     )
-                    # Diagonal 2: top-left → bottom-right (opposite reinforcing)
-                    brace2 = (
-                        cq.Workplane("XY")
-                        .circle(brace_thk / 2.0)
-                        .extrude(brace_len)
-                    )
-                    asm.add(
-                        brace2,
-                        name=f"BraceX_L{k}_{i}_{j}_B",
-                        loc=cq.Location(cq.Vector(mid_x, mid_y, mid_z)),
-                        color=cq.Color(0.30, 0.60, 0.30),
-                    )
-            # Y-perimeter faces (j=0 and j=bays_y)
-            for j in [0, bays_y]:
+            # Y-perimeter faces (j=0 and j=bays_y) — opposite directions
+            for side_idx in [0, 1]:
+                j = 0 if side_idx == 0 else bays_y
                 y = j * bay_y - tower_y / 2.0
+                dir_sign = 1 if side_idx == 0 else -1
                 for i in range(bays_x):
                     x1 = i * bay_x - tower_x / 2.0
                     x2 = (i + 1) * bay_x - tower_x / 2.0
@@ -573,27 +567,15 @@ def build_tower(cfg: Dict[str, Any]) -> cq.Assembly:
                     mid_x = (x1 + x2) / 2.0
                     mid_y = y
                     mid_z = (z1 + z2) / 2.0
-                    # Diagonal 1: bottom-left → top-right
-                    brace1 = (
+                    brace = (
                         cq.Workplane("XY")
                         .circle(brace_thk / 2.0)
                         .extrude(brace_len)
                     )
+                    suffix = "A" if dir_sign > 0 else "B"
                     asm.add(
-                        brace1,
-                        name=f"BraceY_L{k}_{i}_{j}_A",
-                        loc=cq.Location(cq.Vector(mid_x, mid_y, mid_z)),
-                        color=cq.Color(0.30, 0.60, 0.30),
-                    )
-                    # Diagonal 2: top-left → bottom-right (opposite reinforcing)
-                    brace2 = (
-                        cq.Workplane("XY")
-                        .circle(brace_thk / 2.0)
-                        .extrude(brace_len)
-                    )
-                    asm.add(
-                        brace2,
-                        name=f"BraceY_L{k}_{i}_{j}_B",
+                        brace,
+                        name=f"BraceY_L{k}_{i}_{j}_{suffix}",
                         loc=cq.Location(cq.Vector(mid_x, mid_y, mid_z)),
                         color=cq.Color(0.30, 0.60, 0.30),
                     )
@@ -615,6 +597,78 @@ def build_tower(cfg: Dict[str, Any]) -> cq.Assembly:
                     loc=cq.Location(cq.Vector(x, y, top_z)),
                     color=cq.Color(0.55, 0.40, 0.25),
                 )
+
+    # Grating platforms per level (steel grid platforms workers stand on)
+    grating_thk = 5.0  # 5mm thick grating
+    for k in range(1, num_lifts + 1):
+        level_z = k * lift_h
+        grating_z = level_z - grating_thk / 2.0 - 5.0  # 5mm below rosette
+        for i in range(bays_x):
+            for j in range(bays_y):
+                x = (i + 0.5) * bay_x - tower_x / 2.0
+                y = (j + 0.5) * bay_y - tower_y / 2.0
+                grating = (
+                    cq.Workplane("XY")
+                    .box(bay_x * 0.94, bay_y * 0.94, grating_thk)
+                )
+                asm.add(
+                    grating,
+                    name=f"Grating_L{k}_{i}_{j}",
+                    loc=cq.Location(cq.Vector(x, y, grating_z)),
+                    color=cq.Color(0.35, 0.42, 0.48),
+                )
+
+    # Toeboards per level (yellow safety boards around platform perimeter)
+    toeboard_h = 100.0  # 100mm high (industry standard)
+    toeboard_thk = 10.0  # 10mm thick
+    for k in range(1, num_lifts + 1):
+        level_z = k * lift_h
+        grating_z = level_z - 5.0 - 5.0  # align with grating
+        toeboard_center_z = grating_z + toeboard_h / 2.0
+        # North side (along Y+)
+        tb_north = (
+            cq.Workplane("XY")
+            .box(tower_x, toeboard_thk, toeboard_h)
+        )
+        asm.add(
+            tb_north,
+            name=f"Toeboard_N_L{k}",
+            loc=cq.Location(cq.Vector(0, tower_y / 2 - toeboard_thk / 2, toeboard_center_z)),
+            color=cq.Color(0.83, 0.63, 0.09),  # yellow
+        )
+        # South side (along Y-)
+        tb_south = (
+            cq.Workplane("XY")
+            .box(tower_x, toeboard_thk, toeboard_h)
+        )
+        asm.add(
+            tb_south,
+            name=f"Toeboard_S_L{k}",
+            loc=cq.Location(cq.Vector(0, -tower_y / 2 + toeboard_thk / 2, toeboard_center_z)),
+            color=cq.Color(0.83, 0.63, 0.09),
+        )
+        # East side (along X+)
+        tb_east = (
+            cq.Workplane("XY")
+            .box(toeboard_thk, tower_y, toeboard_h)
+        )
+        asm.add(
+            tb_east,
+            name=f"Toeboard_E_L{k}",
+            loc=cq.Location(cq.Vector(tower_x / 2 - toeboard_thk / 2, 0, toeboard_center_z)),
+            color=cq.Color(0.83, 0.63, 0.09),
+        )
+        # West side (along X-)
+        tb_west = (
+            cq.Workplane("XY")
+            .box(toeboard_thk, tower_y, toeboard_h)
+        )
+        asm.add(
+            tb_west,
+            name=f"Toeboard_W_L{k}",
+            loc=cq.Location(cq.Vector(-tower_x / 2 + toeboard_thk / 2, 0, toeboard_center_z)),
+            color=cq.Color(0.83, 0.63, 0.09),
+        )
 
     return asm
 

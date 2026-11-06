@@ -82,6 +82,18 @@ export function ScaffoldTowerMesh({ config }: { config: TowerConfig }) {
         roughness: 0.85,
         metalness: 0.1,
       }),
+      grating: new THREE.MeshStandardMaterial({
+        color: "#5a6c7a",
+        roughness: 0.5,
+        metalness: 0.7,
+        transparent: true,
+        opacity: 0.7,
+      }),
+      toeboard: new THREE.MeshStandardMaterial({
+        color: "#d4a017",
+        roughness: 0.6,
+        metalness: 0.3,
+      }),
       innerBore: new THREE.MeshStandardMaterial({
         color: "#2a2a30",
         roughness: 0.85,
@@ -169,6 +181,9 @@ export function ScaffoldTowerMesh({ config }: { config: TowerConfig }) {
   ]);
 
   // Diagonal braces (perimeter only)
+  // Real scaffold practice: ONE diagonal per side, with opposite direction
+  // across (adjacent sides have opposite diagonal directions). NOT an X-pattern
+  // (you can't physically install two crossing diagonals on the same face).
   const braces = useMemo(() => {
     if (!include_braces) return [];
     const items: {
@@ -179,29 +194,40 @@ export function ScaffoldTowerMesh({ config }: { config: TowerConfig }) {
       const z1 = k * lift_height;
       const z2 = (k + 1) * lift_height;
       // X-axis perimeter faces (i=0 left and i=bays_x right)
-      // Add BOTH diagonals (X-pattern) for opposite reinforcing
-      for (const i of [0, bays_x] as number[]) {
+      // Opposite sides get opposite diagonal directions
+      for (const sideIdx of [0, 1] as number[]) {
+        const i = sideIdx === 0 ? 0 : bays_x;
         const x = i * bay_length_x - towerX / 2;
+        // Direction: side 0 → bottom-left to top-right, side 1 → top-left to bottom-right
+        const dir = sideIdx === 0 ? 1 : -1;
         for (let j = 0; j < bays_y; j++) {
           const y1 = j * bay_length_y - towerY / 2;
           const y2 = (j + 1) * bay_length_y - towerY / 2;
-          // Diagonal 1: bottom-left → top-right
-          items.push({ from: [x, y1, z1], to: [x, y2, z2] });
-          // Diagonal 2: top-left → bottom-right (opposite reinforcing)
-          items.push({ from: [x, y1, z2], to: [x, y2, z1] });
+          if (dir > 0) {
+            // bottom-left → top-right
+            items.push({ from: [x, y1, z1], to: [x, y2, z2] });
+          } else {
+            // top-left → bottom-right (opposite direction)
+            items.push({ from: [x, y1, z2], to: [x, y2, z1] });
+          }
         }
       }
       // Y-axis perimeter faces (j=0 front and j=bays_y back)
-      // Add BOTH diagonals (X-pattern) for opposite reinforcing
-      for (const j of [0, bays_y] as number[]) {
+      // Opposite sides get opposite diagonal directions
+      for (const sideIdx of [0, 1] as number[]) {
+        const j = sideIdx === 0 ? 0 : bays_y;
         const y = j * bay_length_y - towerY / 2;
+        const dir = sideIdx === 0 ? 1 : -1;
         for (let i = 0; i < bays_x; i++) {
           const x1 = i * bay_length_x - towerX / 2;
           const x2 = (i + 1) * bay_length_x - towerX / 2;
-          // Diagonal 1: bottom-left → top-right
-          items.push({ from: [x1, y, z1], to: [x2, y, z2] });
-          // Diagonal 2: top-left → bottom-right (opposite reinforcing)
-          items.push({ from: [x1, y, z2], to: [x2, y, z1] });
+          if (dir > 0) {
+            // bottom-left → top-right
+            items.push({ from: [x1, y, z1], to: [x2, y, z2] });
+          } else {
+            // top-left → bottom-right (opposite direction)
+            items.push({ from: [x1, y, z2], to: [x2, y, z1] });
+          }
         }
       }
     }
@@ -360,7 +386,7 @@ export function ScaffoldTowerMesh({ config }: { config: TowerConfig }) {
             material={materials.brace}
             castShadow
           >
-            <cylinderGeometry args={[0.002, 0.002, len, 8]} />
+            <cylinderGeometry args={[tubeR * 0.4, tubeR * 0.4, len, 8]} />
           </mesh>
         );
       })}
@@ -377,6 +403,85 @@ export function ScaffoldTowerMesh({ config }: { config: TowerConfig }) {
           <boxGeometry args={[p.w, p.h, plank_thickness]} />
         </mesh>
       ))}
+
+      {/* ---- Grating platforms per level ---- */}
+      {/* A grating is a steel grid platform that workers stand on.
+          We render it as a thin box with a slightly transparent material
+          so you can see it's a platform but it doesn't block the view. */}
+      {rosetteZs.map((z, levelIdx) => (
+        <group key={`grating-${levelIdx}`}>
+          {Array.from({ length: bays_x }).map((_, i) =>
+            Array.from({ length: bays_y }).map((_, j) => {
+              const cx = (i + 0.5) * bay_length_x - towerX / 2;
+              const cy = (j + 0.5) * bay_length_y - towerY / 2;
+              const gratingThk = 5; // 5mm thick grating
+              const gratingZ = z - gratingThk / 2 - 5; // 5mm below the rosette
+              return (
+                <mesh
+                  key={`grating-L${levelIdx}-${i}-${j}`}
+                  position={[cx, cy, gratingZ]}
+                  material={materials.grating}
+                  receiveShadow
+                >
+                  <boxGeometry
+                    args={[
+                      bay_length_x * 0.94,
+                      bay_length_y * 0.94,
+                      gratingThk,
+                    ]}
+                  />
+                </mesh>
+              );
+            })
+          )}
+        </group>
+      ))}
+
+      {/* ---- Toeboards per level ---- */}
+      {/* Toeboards are low vertical boards around the platform edge to prevent
+          tools/materials from falling off. We render them as thin vertical
+          boxes around the perimeter of each platform level. */}
+      {rosetteZs.map((z, levelIdx) => {
+        const toeboardH = 100; // 100mm high (industry standard)
+        const toeboardThk = 10; // 10mm thick
+        const gratingZ = z - 5 - 5; // align with grating level
+        return (
+          <group key={`toeboard-${levelIdx}`}>
+            {/* North side (along Y+) */}
+            <mesh
+              position={[0, towerY / 2 - toeboardThk / 2, gratingZ + toeboardH / 2]}
+              material={materials.toeboard}
+              castShadow
+            >
+              <boxGeometry args={[towerX, toeboardThk, toeboardH]} />
+            </mesh>
+            {/* South side (along Y-) */}
+            <mesh
+              position={[0, -towerY / 2 + toeboardThk / 2, gratingZ + toeboardH / 2]}
+              material={materials.toeboard}
+              castShadow
+            >
+              <boxGeometry args={[towerX, toeboardThk, toeboardH]} />
+            </mesh>
+            {/* East side (along X+) */}
+            <mesh
+              position={[towerX / 2 - toeboardThk / 2, 0, gratingZ + toeboardH / 2]}
+              material={materials.toeboard}
+              castShadow
+            >
+              <boxGeometry args={[toeboardThk, towerY, toeboardH]} />
+            </mesh>
+            {/* West side (along X-) */}
+            <mesh
+              position={[-towerX / 2 + toeboardThk / 2, 0, gratingZ + toeboardH / 2]}
+              material={materials.toeboard}
+              castShadow
+            >
+              <boxGeometry args={[toeboardThk, towerY, toeboardH]} />
+            </mesh>
+          </group>
+        );
+      })}
     </group>
   );
 }
