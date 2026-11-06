@@ -550,62 +550,30 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
 
       {/* ---- Handrails and middle rails on TOP level ---- */}
       {/* EN 12811: top guardrail at 1000mm, middle rail at 500mm above platform.
-          Rails positioned OUTSIDE the frame posts (100mm beyond standard line).
-          Rails on 3 sides (back, left, right) — front (+Y) open for access.
+          Rails ATTACHED to the guardrail posts (which sit on the standards).
+          Guardrail posts extend from top rosette upward 1000mm.
+          Rails connect between posts on 3 sides — front (+Y) open for access.
           All coordinates in Z-up (tower's own coordinate system). */}
       {(() => {
         const topZ = towerHeight;
         const railH1 = topZ + 500; // middle rail
         const railH2 = topZ + 1000; // top guardrail
         const railR = tubeR * 0.8;
-        const offset = 100; // 100mm outside the standard line
-        // Rotation to make cylinder axis point along X (default is Y)
-        const alongX: [number, number, number] = [0, 0, Math.PI / 2];
-        // Rotation to make cylinder axis point along Y (default is Y, no rotation needed)
-        const alongY: [number, number, number] = [0, 0, 0];
+
+        // Guardrail post positions = same as standard positions (on the frame)
+        // Rails connect BETWEEN posts, same X/Y as the standards
+        // Back rail: along X at Y=-towerY/2 (back row of standards)
+        // Right rail: along Y at X=towerX/2 (right column of standards)
+        // Left rail: along Y at X=-towerX/2 (left column of standards)
+        // No front rail (open for access at +Y)
+
+        // Rail length = distance between outermost posts on that side
+        const railLenX = towerX; // along X = towerX
+        const railLenY = towerY; // along Y = towerY
 
         return (
           <group>
-            {/* Back side (Y-) — rail runs along X, positioned at Y=-towerY/2-offset */}
-            {[railH1, railH2].map((rz, ri) => (
-              <mesh
-                key={`rail-back-${ri}`}
-                position={[0, -towerY / 2 - offset, rz]}
-                rotation={alongX}
-                material={materials.standard}
-                castShadow
-              >
-                <cylinderGeometry args={[railR, railR, towerX + offset * 2, 16]} />
-                <meshStandardMaterial color="#8e9098" />
-              </mesh>
-            ))}
-            {/* Right side (X+) — rail runs along Y, positioned at X=towerX/2+offset */}
-            {[railH1, railH2].map((rz, ri) => (
-              <mesh
-                key={`rail-right-${ri}`}
-                position={[towerX / 2 + offset, 0, rz]}
-                rotation={alongY}
-                material={materials.standard}
-                castShadow
-              >
-                <cylinderGeometry args={[railR, railR, towerY + offset * 2, 16]} />
-                <meshStandardMaterial color="#8e9098" />
-              </mesh>
-            ))}
-            {/* Left side (X-) — rail runs along Y, positioned at X=-towerX/2-offset */}
-            {[railH1, railH2].map((rz, ri) => (
-              <mesh
-                key={`rail-left-${ri}`}
-                position={[-towerX / 2 - offset, 0, rz]}
-                rotation={alongY}
-                material={materials.standard}
-                castShadow
-              >
-                <cylinderGeometry args={[railR, railR, towerY + offset * 2, 16]} />
-                <meshStandardMaterial color="#8e9098" />
-              </mesh>
-            ))}
-            {/* Guardrail posts at corners — vertical (Z-up), 1000mm tall */}
+            {/* Guardrail posts — vertical tubes from top platform to 1000mm above */}
             {standardPositions.map(([x, y], idx) => (
               <mesh
                 key={`grpost-${idx}`}
@@ -618,31 +586,85 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
                 <meshStandardMaterial color="#8e9098" />
               </mesh>
             ))}
-            {/* Trap door on top level — yellow hinged section at the open grating section */}
+
+            {/* Back side (Y-) — 2 rails along X, at Y of back standards */}
+            {[railH1, railH2].map((rz, ri) => (
+              <mesh
+                key={`rail-back-${ri}`}
+                position={[0, -towerY / 2, rz]}
+                rotation={[0, 0, Math.PI / 2]}
+                material={materials.standard}
+                castShadow
+              >
+                <cylinderGeometry args={[railR, railR, railLenX, 16]} />
+                <meshStandardMaterial color="#8e9098" />
+              </mesh>
+            ))}
+            {/* Right side (X+) — 2 rails along Y, at X of right standards */}
+            {[railH1, railH2].map((rz, ri) => (
+              <mesh
+                key={`rail-right-${ri}`}
+                position={[towerX / 2, 0, rz]}
+                rotation={[0, 0, 0]}
+                material={materials.standard}
+                castShadow
+              >
+                <cylinderGeometry args={[railR, railR, railLenY, 16]} />
+                <meshStandardMaterial color="#8e9098" />
+              </mesh>
+            ))}
+            {/* Left side (X-) — 2 rails along Y, at X of left standards */}
+            {[railH1, railH2].map((rz, ri) => (
+              <mesh
+                key={`rail-left-${ri}`}
+                position={[-towerX / 2, 0, rz]}
+                rotation={[0, 0, 0]}
+                material={materials.standard}
+                castShadow
+              >
+                <cylinderGeometry args={[railR, railR, railLenY, 16]} />
+                <meshStandardMaterial color="#8e9098" />
+              </mesh>
+            ))}
+
+            {/* Trap door — flush with grating, exactly at the open section */}
+            {/* The open section is where no grating boards are placed (1/3 of bay) */}
             {(() => {
               const topLevelIdx = rosetteZs.length - 1;
               const levelNum = topLevelIdx + 1;
-              const isOpenAtFront = levelNum % 2 === 1;
+              const isOpenAtFront = levelNum % 2 === 1; // odd levels open at +X
               const sectionWidth = bay_length_x / 3;
-              const bayCenterX = bay_length_x / 2 - towerX / 2;
-              const bayCenterY = bay_length_y / 2 - towerY / 2;
-              // Place trap door at the OPEN section (where there are no grating boards)
-              const trapX = isOpenAtFront
-                ? bayCenterX + sectionWidth / 2  // front (+X) section is open
-                : bayCenterX - sectionWidth / 2; // back (-X) section is open
-              const trapZ = topZ - 4;
-              const trapThk = 6;
+
+              // Bay center for bay (0,0)
+              const bayCx = bay_length_x / 2 - towerX / 2;
+              const bayCy = bay_length_y / 2 - towerY / 2;
+
+              // The 3 section centers along X:
+              // section 0 (back, -X): bayCx - bay_length_x/2 + sectionWidth/2
+              // section 1 (middle):   bayCx
+              // section 2 (front, +X): bayCx + bay_length_x/2 - sectionWidth/2
+
+              // Open section: odd levels → section 2 (front); even → section 0 (back)
+              const openSectionX = isOpenAtFront
+                ? bayCx + bay_length_x / 2 - sectionWidth / 2  // front
+                : bayCx - bay_length_x / 2 + sectionWidth / 2; // back
+
+              // Trap door sits flush with grating level (same Z as grating boards)
+              const gratingThk = 8;
+              const trapZ = topZ - gratingThk / 2 - 2;
+
               return (
                 <mesh
                   key="trapdoor"
-                  position={[trapX, bayCenterY, trapZ]}
+                  position={[openSectionX, bayCy, trapZ]}
                   castShadow
+                  receiveShadow
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (onPartClick) onPartClick("Trap door", [trapX, bayCenterY, trapZ]);
+                    if (onPartClick) onPartClick("Trap door", [openSectionX, bayCy, trapZ]);
                   }}
                 >
-                  <boxGeometry args={[sectionWidth * 0.85, bay_length_y * 0.85, trapThk]} />
+                  <boxGeometry args={[sectionWidth * 0.9, bay_length_y * 0.94, gratingThk]} />
                   <meshStandardMaterial color="#e8a020" roughness={0.5} metalness={0.4} />
                 </mesh>
               );
