@@ -52,11 +52,24 @@ interface GenResult {
   size_kb?: number;
 }
 
+/** Check if the Python binary is available (returns true/false). */
+function checkPythonAvailable(pythonBin: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const proc = spawn(pythonBin, ["--version"], { stdio: "ignore" });
+    proc.on("error", () => resolve(false));
+    proc.on("close", (code) => resolve(code === 0));
+  });
+}
+
 /** Spawn the Python generator and resolve with the parsed JSON status line. */
 function runGenerator(configPath: string, outputPath: string): Promise<GenResult> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(PYTHON_BIN, [
-      GENERATOR,
+    const pythonBin = process.env.PYTHON_BIN || "python3";
+    const generatorPath =
+      process.env.GENERATOR_PATH ||
+      path.join(process.cwd(), "scripts", "generate_step.py");
+    const proc = spawn(pythonBin, [
+      generatorPath,
       "--config",
       configPath,
       "--output",
@@ -118,14 +131,51 @@ export async function POST(req: Request) {
     );
   }
 
+  // Check if Python is available — if not, return a helpful error
+  // instead of crashing the request. This lets the app run on platforms
+  // that don't have Python (e.g. Vercel free tier).
+  const pythonBin = process.env.PYTHON_BIN || "python3";
+  const generatorPath =
+    process.env.GENERATOR_PATH ||
+    path.join(process.cwd(), "scripts", "generate_step.py");
+
+  // Quick check: does the Python binary exist?
+  const { existsSync } = await import("node:fs");
+  const pythonExists = await checkPythonAvailable(pythonBin);
+  if (!pythonExists) {
+    return NextResponse.json(
+      {
+        error: "STEP generation requires Python + cadquery, which is not available on this deployment.",
+        hint: "Run the app locally with ./run.sh to generate STEP files, or deploy to a platform that supports Python (Render, Cloud Run, or use the Dockerfile).",
+        python_bin: pythonBin,
+        generator_path: generatorPath,
+      },
+      { status: 501 },
+    );
+  }
+
+  // Check the generator script exists
+  if (!existsSync(generatorPath)) {
+    return NextResponse.json(
+      {
+        error: "Python generator script not found.",
+        expected_path: generatorPath,
+        hint: "Make sure scripts/generate_step.py is included in the deployment.",
+      },
+      { status: 501 },
+    );
+  }
+
   // Ensure work + tmp dirs exist
-  await fs.mkdir(WORK_DIR, { recursive: true });
-  await fs.mkdir(TMP_DIR, { recursive: true });
+  const workDir = process.env.WORK_DIR || path.join(process.cwd(), "download");
+  const tmpDir = process.env.TMP_DIR || "/tmp/scaffold-step-gen";
+  await fs.mkdir(workDir, { recursive: true });
+  await fs.mkdir(tmpDir, { recursive: true });
 
   // Materialise config + output paths
   const id = randomUUID();
-  const configPath = path.join(TMP_DIR, `${id}.json`);
-  const outputPath = path.join(WORK_DIR, `${id}.step`);
+  const configPath = path.join(tmpDir, `${id}.json`);
+  const outputPath = path.join(workDir, `${id}.step`);
 
   await fs.writeFile(configPath, JSON.stringify(body, null, 2), "utf8");
 
