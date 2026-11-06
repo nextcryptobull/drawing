@@ -346,6 +346,254 @@ def build_standard(cfg: Dict[str, Any]) -> cq.Assembly:
 
 
 # ============================================================================
+# TOWER  (complete scaffold tower assembly)
+# ============================================================================
+def build_tower(cfg: Dict[str, Any]) -> cq.Assembly:
+    """Build a complete ringlock scaffold tower assembly.
+
+    Layout:
+      - Standards (vertical tubes) at grid corners (i*bay_x, j*bay_y)
+      - Rosettes on each standard at each lift level
+      - Ledgers (horizontal tubes) connecting adjacent standards at each level
+      - Diagonal braces on perimeter faces (if include_braces)
+      - Base jacks below each standard (if include_base_jacks)
+      - Planks on top level (if include_planks)
+    """
+    bays_x = int(cfg.get("bays_x", 1))
+    bays_y = int(cfg.get("bays_y", 1))
+    bay_x = float(cfg.get("bay_length_x", 2570.0))
+    bay_y = float(cfg.get("bay_length_y", 1090.0))
+    lift_h = float(cfg.get("lift_height", 2000.0))
+    num_lifts = int(cfg.get("num_lifts", 1))
+
+    tube_od = float(cfg.get("tube_od", 48.3))
+    tube_wall = float(cfg.get("tube_wall", 3.2))
+    tube_id = tube_od - 2.0 * tube_wall
+    pitch = float(cfg.get("rosette_pitch", 500.0))
+    disc_od = float(cfg.get("rosette_disc_od", 122.0))
+    disc_thk = float(cfg.get("rosette_thickness", 10.0))
+    center_bore = float(cfg.get("rosette_center_bore", 50.0))
+    spigot_od = float(cfg.get("spigot_od", 38.0))
+    spigot_len = float(cfg.get("spigot_length", 150.0))
+
+    ledger_od = float(cfg.get("ledger_od", 48.3))
+    ledger_wall = float(cfg.get("ledger_wall", 3.2))
+    ledger_id = ledger_od - 2.0 * ledger_wall
+
+    include_braces = bool(cfg.get("include_braces", True))
+    include_base_jacks = bool(cfg.get("include_base_jacks", True))
+    base_jack_od = float(cfg.get("base_jack_od", 38.0))
+    base_jack_len = float(cfg.get("base_jack_length", 600.0))
+
+    include_planks = bool(cfg.get("include_planks", False))
+    plank_thk = float(cfg.get("plank_thickness", 50.0))
+
+    tower_height = num_lifts * lift_h
+    tower_x = bays_x * bay_x
+    tower_y = bays_y * bay_y
+
+    # ---- Build reusable part templates ----
+    # Standard tube (vertical)
+    tube = (
+        cq.Workplane("XY")
+        .circle(tube_od / 2.0)
+        .circle(tube_id / 2.0)
+        .extrude(tower_height)
+    )
+
+    # Rosette disc with 8 holes
+    rosette = (
+        cq.Workplane("XY")
+        .circle(disc_od / 2.0)
+        .extrude(disc_thk)
+        .faces(">Z").workplane()
+        .hole(center_bore)
+    )
+    for a in [0.0, 90.0, 180.0, 270.0]:
+        x = 35.0 * math.cos(math.radians(a))
+        y = 35.0 * math.sin(math.radians(a))
+        rosette = rosette.faces(">Z").workplane().moveTo(x, y).hole(14.0)
+    for a in [45.0, 135.0, 225.0, 315.0]:
+        x = 35.0 * math.cos(math.radians(a))
+        y = 35.0 * math.sin(math.radians(a))
+        rosette = rosette.faces(">Z").workplane().moveTo(x, y).hole(20.0)
+
+    # Spigot
+    spigot = (
+        cq.Workplane("XY")
+        .circle(spigot_od / 2.0)
+        .circle(26.0 / 2.0)
+        .extrude(spigot_len)
+    )
+
+    # Base jack
+    base_jack = (
+        cq.Workplane("XY")
+        .circle(base_jack_od / 2.0)
+        .extrude(base_jack_len)
+    )
+
+    # Ledger tube (will be rotated/translated as needed)
+    ledger_x = (
+        cq.Workplane("XY")
+        .circle(ledger_od / 2.0)
+        .circle(ledger_id / 2.0)
+        .extrude(bay_x)
+        .translate((bay_x / 2.0, 0, 0))
+    )
+
+    ledger_y = (
+        cq.Workplane("XY")
+        .circle(ledger_od / 2.0)
+        .circle(ledger_id / 2.0)
+        .extrude(bay_y)
+        .translate((0, bay_y / 2.0, 0))
+    )
+
+    # ---- Build the assembly ----
+    asm = cq.Assembly(name=f"Scaffold_Tower_{bays_x}x{bays_y}_{int(tower_height)}mm")
+
+    # Standards + rosettes + spigots + base jacks
+    std_count = 0
+    for i in range(bays_x + 1):
+        for j in range(bays_y + 1):
+            x = i * bay_x - tower_x / 2.0
+            y = j * bay_y - tower_y / 2.0
+            std_count += 1
+
+            # Base jack (below ground)
+            if include_base_jacks:
+                asm.add(
+                    base_jack,
+                    name=f"BaseJack_{std_count}",
+                    loc=cq.Location(cq.Vector(x, y, -base_jack_len)),
+                    color=cq.Color(0.30, 0.30, 0.35),
+                )
+
+            # Vertical tube
+            asm.add(
+                tube,
+                name=f"Standard_{std_count}",
+                loc=cq.Location(cq.Vector(x, y, 0)),
+                color=cq.Color(0.55, 0.55, 0.58),
+            )
+
+            # Rosettes at each lift level
+            for k in range(1, num_lifts + 1):
+                z = k * lift_h
+                asm.add(
+                    rosette,
+                    name=f"Rosette_{std_count}_L{k}",
+                    loc=cq.Location(cq.Vector(x, y, z - disc_thk / 2.0)),
+                    color=cq.Color(0.85, 0.55, 0.2),
+                )
+
+            # Top spigot
+            asm.add(
+                spigot,
+                name=f"Spigot_{std_count}",
+                loc=cq.Location(cq.Vector(x, y, tower_height)),
+                color=cq.Color(0.40, 0.40, 0.45),
+            )
+
+    # Ledgers at each lift level
+    for k in range(1, num_lifts + 1):
+        z = k * lift_h
+        # Ledgers along X (connect standards at same j, different i)
+        for j in range(bays_y + 1):
+            for i in range(bays_x):
+                x = i * bay_x - tower_x / 2.0
+                y = j * bay_y - tower_y / 2.0
+                asm.add(
+                    ledger_x,
+                    name=f"LedgerX_L{k}_{i}_{j}",
+                    loc=cq.Location(cq.Vector(x, y, z)),
+                    color=cq.Color(0.50, 0.50, 0.55),
+                )
+        # Ledgers along Y (connect standards at same i, different j)
+        for i in range(bays_x + 1):
+            for j in range(bays_y):
+                x = i * bay_x - tower_x / 2.0
+                y = j * bay_y - tower_y / 2.0
+                asm.add(
+                    ledger_y,
+                    name=f"LedgerY_L{k}_{i}_{j}",
+                    loc=cq.Location(cq.Vector(x, y, z)),
+                    color=cq.Color(0.50, 0.50, 0.55),
+                )
+
+    # Diagonal braces on perimeter faces
+    if include_braces:
+        brace_thk = 4.0
+        for k in range(num_lifts):
+            z1 = k * lift_h
+            z2 = (k + 1) * lift_h
+            # X-perimeter faces (i=0 and i=bays_x)
+            for i in [0, bays_x]:
+                x = i * bay_x - tower_x / 2.0
+                for j in range(bays_y):
+                    y1 = j * bay_y - tower_y / 2.0
+                    y2 = (j + 1) * bay_y - tower_y / 2.0
+                    brace_len = math.sqrt(bay_y * bay_y + (z2 - z1) ** 2)
+                    brace = (
+                        cq.Workplane("XY")
+                        .circle(brace_thk / 2.0)
+                        .extrude(brace_len)
+                    )
+                    # Approximate orientation: place as diagonal
+                    mid_x = x
+                    mid_y = (y1 + y2) / 2.0
+                    mid_z = (z1 + z2) / 2.0
+                    asm.add(
+                        brace,
+                        name=f"BraceX_L{k}_{i}_{j}",
+                        loc=cq.Location(cq.Vector(mid_x, mid_y, mid_z)),
+                        color=cq.Color(0.30, 0.60, 0.30),
+                    )
+            # Y-perimeter faces (j=0 and j=bays_y)
+            for j in [0, bays_y]:
+                y = j * bay_y - tower_y / 2.0
+                for i in range(bays_x):
+                    x1 = i * bay_x - tower_x / 2.0
+                    x2 = (i + 1) * bay_x - tower_x / 2.0
+                    brace_len = math.sqrt(bay_x * bay_x + (z2 - z1) ** 2)
+                    brace = (
+                        cq.Workplane("XY")
+                        .circle(brace_thk / 2.0)
+                        .extrude(brace_len)
+                    )
+                    mid_x = (x1 + x2) / 2.0
+                    mid_y = y
+                    mid_z = (z1 + z2) / 2.0
+                    asm.add(
+                        brace,
+                        name=f"BraceY_L{k}_{i}_{j}",
+                        loc=cq.Location(cq.Vector(mid_x, mid_y, mid_z)),
+                        color=cq.Color(0.30, 0.60, 0.30),
+                    )
+
+    # Planks on top level
+    if include_planks:
+        top_z = tower_height + plank_thk / 2.0
+        for i in range(bays_x):
+            for j in range(bays_y):
+                x = (i + 0.5) * bay_x - tower_x / 2.0
+                y = (j + 0.5) * bay_y - tower_y / 2.0
+                plank = (
+                    cq.Workplane("XY")
+                    .box(bay_x * 0.92, bay_y * 0.92, plank_thk)
+                )
+                asm.add(
+                    plank,
+                    name=f"Plank_{i}_{j}",
+                    loc=cq.Location(cq.Vector(x, y, top_z)),
+                    color=cq.Color(0.55, 0.40, 0.25),
+                )
+
+    return asm
+
+
+# ============================================================================
 # Dispatcher
 # ============================================================================
 def build_part(cfg: Dict[str, Any]) -> Tuple[Any, List[str]]:
@@ -358,6 +606,8 @@ def build_part(cfg: Dict[str, Any]) -> Tuple[Any, List[str]]:
         return build_rosette(cfg), warnings
     if ptype == "standard":
         return build_standard(cfg), warnings
+    if ptype == "tower":
+        return build_tower(cfg), warnings
     raise ValueError(f"Unknown part type: {ptype!r}")
 
 
