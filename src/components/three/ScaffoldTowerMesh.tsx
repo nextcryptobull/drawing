@@ -447,48 +447,41 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
         </mesh>
       ))}
 
-      {/* ---- Grating platforms per level (multiple boards with one side open) ---- */}
-      {/* Gratings are composed of multiple steel boards laid side by side INSIDE
-          the bay frame, sitting ON TOP of the horizontal ledgers.
-          The +Y (front) side is left open for ladder/stair access. */}
+      {/* ---- Grating platforms per level (1 piece + 2 open for access) ---- */}
+      {/* Each bay is divided into 3 equal sections along Y.
+          Only 1 section (back, -Y side) gets a grating board.
+          The front 2 sections are OPEN for ladder/stair access. */}
       {include_gratings && rosetteZs.map((z, levelIdx) => (
         <group key={`grating-${levelIdx}`}>
           {Array.from({ length: bays_x }).map((_, i) =>
             Array.from({ length: bays_y }).map((_, j) => {
-              // Bay CENTER (not edge)
               const bayCenterX = (i + 0.5) * bay_length_x - towerX / 2;
               const bayCenterY = (j + 0.5) * bay_length_y - towerY / 2;
-              const gratingThk = 8; // 8mm thick boards
-              // Grating sits ON TOP of the ledgers (just below rosette level)
+              const gratingThk = 8;
               const gratingZ = z - gratingThk / 2 - 2;
 
-              // Board dimensions: span the bay along X, ~100mm wide along Y
-              const boardLen = bay_length_x * 0.94; // fits inside the frame
-              const openSpace = 200; // 200mm open on +Y side for access
-              const usableY = bay_length_y - openSpace;
-              const boardCount = Math.max(3, Math.floor(usableY / 100));
-              const boardWidth = usableY / boardCount;
+              // Divide bay into 3 sections along Y
+              const sectionWidth = bay_length_y / 3;
+              const boardLen = bay_length_x * 0.94;
 
-              // Boards laid along X, positioned across Y starting from -Y (back) side
-              return Array.from({ length: boardCount }).map((_, bi) => {
-                // Board Y: start from back (-Y edge of bay), move toward front (+Y)
-                const boardY = bayCenterY - bay_length_y / 2 + boardWidth / 2 + bi * boardWidth;
-                return (
-                  <mesh
-                    key={`grating-L${levelIdx}-${i}-${j}-${bi}`}
-                    position={[bayCenterX, boardY, gratingZ]}
-                    material={materials.grating}
-                    receiveShadow
-                    castShadow
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (onPartClick) onPartClick(`Grating board L${levelIdx + 1}`, [bayCenterX, boardY, gratingZ]);
-                    }}
-                  >
-                    <boxGeometry args={[boardLen, boardWidth * 0.9, gratingThk]} />
-                  </mesh>
-                );
-              });
+              // Only 1 grating board in the back (-Y) section
+              const boardY = bayCenterY - bay_length_y / 2 + sectionWidth / 2;
+
+              return (
+                <mesh
+                  key={`grating-L${levelIdx}-${i}-${j}`}
+                  position={[bayCenterX, boardY, gratingZ]}
+                  material={materials.grating}
+                  receiveShadow
+                  castShadow
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onPartClick) onPartClick(`Grating L${levelIdx + 1}`, [bayCenterX, boardY, gratingZ]);
+                  }}
+                >
+                  <boxGeometry args={[boardLen, sectionWidth * 0.9, gratingThk]} />
+                </mesh>
+              );
             })
           )}
         </group>

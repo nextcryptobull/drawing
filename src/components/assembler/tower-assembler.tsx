@@ -268,8 +268,8 @@ export function TowerAssembler() {
                             />
                             <StatBox
                               label="Est. weight"
-                              value={`${result.bom.estimated_weight_kg} kg`}
-                              hint={`${result.bom.total_parts} parts total`}
+                              value={`${(result.bom.estimated_weight_kg / 1000).toFixed(2)} t`}
+                              hint={`${result.bom.estimated_weight_kg.toLocaleString()} kg · ${result.bom.total_parts} parts`}
                             />
                           </div>
 
@@ -419,6 +419,12 @@ export function TowerAssembler() {
                             <span className="text-sm font-medium">Total parts</span>
                             <Badge variant="secondary" className="font-mono">
                               {result.bom.total_parts} pcs
+                            </Badge>
+                          </div>
+                          <div className="flex items-center justify-between border-t pt-2">
+                            <span className="text-sm font-medium">Estimated weight</span>
+                            <Badge variant="secondary" className="font-mono">
+                              {result.bom.estimated_weight_kg.toLocaleString()} kg · {(result.bom.estimated_weight_kg / 1000).toFixed(2)} t
                             </Badge>
                           </div>
                         </CardContent>
