@@ -1,0 +1,37 @@
+# Railway deployment config using Nixpacks (Railway's default buildpack)
+# Docs: https://docs.railway.app/config/build-and-start-commands
+# Free tier: $5 credit/month (~500 hours of small instance)
+# After deploy: Railway gives you a public URL like https://your-app.up.railway.app
+
+# ---- Build phase: install Python + cadquery + Node deps + build Next.js ----
+[build]
+builder = "NIXPACKS"
+
+# Install Python + cadquery before building the Node.js app
+# These run in the build phase (cached for future deploys)
+nixpacksConfigVersion = 1
+installCmd = """
+  apt-get update && \
+  apt-get install -y python3 python3-pip python3-venv libgl1 libglib2.0-0 libxrender1 libxext6 libsm6 && \
+  python3 -m venv /opt/venv && \
+  /opt/venv/bin/pip install --no-cache-dir cadquery && \
+  bun install --frozen-lockfile || bun install || npm install
+"""
+
+# Build the Next.js standalone bundle
+buildCmd = "bun run build || npm run build"
+
+# ---- Start phase: run the Next.js standalone server -----------------------
+[start]
+# Use Node.js (not bun) to run the standalone server for better compatibility
+startCommand = "node .next/standalone/server.js"
+
+# ---- Runtime config -------------------------------------------------------
+[deploy]
+healthcheckPath = "/"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+# Make sure Railway routes traffic to port 3000
+# (Next.js standalone reads PORT env var, defaults to 3000)
