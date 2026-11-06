@@ -637,25 +637,29 @@ def build_tower(cfg: Dict[str, Any]) -> cq.Assembly:
                     color=cq.Color(0.55, 0.40, 0.25),
                 )
 
-    # Grating platforms per level — multiple boards with one side open for access
-    # Gratings are composed of multiple steel boards laid side by side.
+    # Grating platforms per level — multiple boards INSIDE the bay frame,
+    # sitting ON TOP of the horizontal ledgers.
     # The +Y (front) side is left open for ladder/stair access.
     include_gratings = bool(cfg.get("include_gratings", True))
     if include_gratings:
         grating_thk = 8.0  # 8mm thick boards
         for k in range(1, num_lifts + 1):
             level_z = k * lift_h
-            grating_z = level_z - grating_thk / 2.0 - 5.0  # below rosette
+            grating_z = level_z - grating_thk / 2.0 - 2.0  # just below rosette, on top of ledgers
             for i in range(bays_x):
                 for j in range(bays_y):
-                    bay_cx = i * bay_x - tower_x / 2.0
-                    bay_cy = j * bay_y - tower_y / 2.0
-                    # Number of boards: ~100mm spacing, leave 200mm open on +Y side
-                    board_count = max(3, int((bay_y - 200) / 100))
-                    board_width = (bay_y - 200) / board_count
-                    board_len = bay_x * 0.92
+                    # Bay CENTER (not edge)
+                    bay_center_x = (i + 0.5) * bay_x - tower_x / 2.0
+                    bay_center_y = (j + 0.5) * bay_y - tower_y / 2.0
+                    # Board dimensions: span along X, ~100mm wide along Y
+                    board_len = bay_x * 0.94  # fits inside the frame
+                    open_space = 200.0  # 200mm open on +Y side for access
+                    usable_y = bay_y - open_space
+                    board_count = max(3, int(usable_y / 100.0))
+                    board_width = usable_y / board_count
                     for bi in range(board_count):
-                        board_y = bay_cy - bay_y / 2.0 + board_width / 2.0 + bi * board_width
+                        # Board Y: start from back (-Y edge), move toward front (+Y)
+                        board_y = bay_center_y - bay_y / 2.0 + board_width / 2.0 + bi * board_width
                         board = (
                             cq.Workplane("XY")
                             .box(board_len, board_width * 0.9, grating_thk)
@@ -663,7 +667,7 @@ def build_tower(cfg: Dict[str, Any]) -> cq.Assembly:
                         asm.add(
                             board,
                             name=f"GratingBoard_L{k}_{i}_{j}_{bi}",
-                            loc=cq.Location(cq.Vector(bay_cx + bay_x / 2.0 - board_len / 2.0, board_y, grating_z)),
+                            loc=cq.Location(cq.Vector(bay_center_x, board_y, grating_z)),
                             color=cq.Color(0.35, 0.42, 0.48),
                         )
 

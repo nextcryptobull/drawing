@@ -1,9 +1,10 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
-import { Canvas } from "@react-three/fiber";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Canvas, useThree } from "@react-three/fiber";
 import { Environment, Grid, OrbitControls } from "@react-three/drei";
-import { Grid3x3, Eye, EyeOff } from "lucide-react";
+import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
+import { Eye, EyeOff, Focus, RotateCcw } from "lucide-react";
 
 import type { TowerConfig } from "@/lib/part-types";
 import { ScaffoldTowerMesh } from "@/components/three/ScaffoldTowerMesh";
@@ -11,8 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 
 /**
- * Debounce a value by `delay` ms, comparing by JSON so that deeply-equal
- * objects don't trigger an update.
+ * Debounce a value by `delay` ms, comparing by JSON.
  */
 function useDebouncedValue<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState<T>(value);
@@ -24,21 +24,88 @@ function useDebouncedValue<T>(value: T, delay: number): T {
   return debounced;
 }
 
+interface FocusTarget {
+  name: string;
+  pos: [number, number, number]; // tower coords (Z-up, mm)
+}
+
+/**
+ * CameraController — lives inside the Canvas, moves the camera when a part
+ * is clicked. Transforms Z-up tower coords to Y-up world coords.
+ */
+function CameraController({
+  focusTarget,
+  resetCounter,
+  scale,
+  defaultCamPos,
+  defaultTarget,
+}: {
+  focusTarget: FocusTarget | null;
+  resetCounter: number;
+  scale: number;
+  defaultCamPos: [number, number, number];
+  defaultTarget: [number, number, number];
+}) {
+  const { camera } = useThree();
+  const controlsRef = useRef<OrbitControlsImpl | null>(null);
+
+  // Reset to default when resetCounter changes
+  useEffect(() => {
+    camera.position.set(defaultCamPos[0], defaultCamPos[1], defaultCamPos[2]);
+    if (controlsRef.current) {
+      controlsRef.current.target.set(defaultTarget[0], defaultTarget[1], defaultTarget[2]);
+      controlsRef.current.update();
+    }
+  }, [resetCounter]);
+
+  // Focus on a part when focusTarget changes
+  useEffect(() => {
+    if (!focusTarget || !controlsRef.current) return;
+
+    // Transform tower coords (Z-up) to world coords (Y-up) after -90° X rotation
+    // Rotation -π/2 around X: (x, y, z) → (x, z, -y)
+    // Then apply scale
+    const [tx, ty, tz] = focusTarget.pos;
+    const worldX = tx * scale;
+    const worldY = tz * scale; // old Z → new Y (up)
+    const worldZ = -ty * scale; // old Y → new Z (depth, negated)
+
+    // Move camera to be close to the target, slightly offset
+    const focusDist = 3; // close-up distance
+    camera.position.set(
+      worldX + focusDist * 0.5,
+      worldY + focusDist * 0.3,
+      worldZ + focusDist * 0.7,
+    );
+    controlsRef.current.target.set(worldX, worldY, worldZ);
+    controlsRef.current.update();
+  }, [focusTarget, scale, camera]);
+
+  return (
+    <OrbitControls
+      ref={controlsRef as never}
+      enableDamping
+      dampingFactor={0.08}
+      minDistance={1}
+      maxDistance={50}
+      maxPolarAngle={Math.PI * 0.49}
+    />
+  );
+}
+
 export function TowerViewer({ config }: { config: TowerConfig | null }) {
   const debounced = useDebouncedValue(config, 150);
   const [showGrid, setShowGrid] = useState(true);
+  const [focusTarget, setFocusTarget] = useState<FocusTarget | null>(null);
+  const [resetCounter, setResetCounter] = useState(0);
 
-  // Compute the framing for the tower
   const frame = useMemo(() => {
     if (!debounced) return { radius: 200, height: 200, centerZ: 100 };
     const t = debounced;
     const tw = t.bays_x * t.bay_length_x;
     const td = t.bays_y * t.bay_length_y;
-    const bottomZ = t.include_base_jacks ? -t.base_jack_length : 0;
-    const topZ =
-      t.num_lifts * t.lift_height +
-      t.spigot_length +
-      (t.include_planks ? t.plank_thickness : 0);
+    const bottomZ = t.include_base_jacks || (t as { base_type?: string }).base_type === "jack" ? -t.base_jack_length : 0;
+    const topZ = t.num_lifts * t.lift_height + t.spigot_length;
     const th = topZ - bottomZ;
     const r = Math.sqrt(tw * tw + td * td) / 2;
     return {
@@ -59,27 +126,30 @@ export function TowerViewer({ config }: { config: TowerConfig | null }) {
     );
   }
 
-  // Position camera so the tower appears STANDING UP (vertical, not laying down)
-  // Three.js default is Y-up. After rotating the tower group -90° around X,
-  // the tower's Z (height) becomes Y. So we frame using Y as the vertical.
   const towerHeightScaled = frame.height * scale;
   const towerRadiusScaled = frame.radius * scale;
-
-  // Camera distance: enough to see the full tower height
   const camDist = Math.max(towerHeightScaled * 1.2, towerRadiusScaled * 3, 12);
-
-  // Camera position: front-right-above (in Y-up space)
-  const camX = camDist * 0.7;        // right
-  const camY = towerHeightScaled * 0.6 + camDist * 0.3;  // up (above midpoint)
-  const camZ = camDist * 0.7;        // front
-
-  // OrbitControls target: tower's vertical midpoint (Y is up after rotation)
-  const targetY = towerHeightScaled * 0.5;
+  const defaultCamPos: [number, number, number] = [
+    camDist * 0.7,
+    towerHeightScaled * 0.6 + camDist * 0.3,
+    camDist * 0.7,
+  ];
+  const defaultTarget: [number, number, number] = [0, towerHeightScaled * 0.5, 0];
 
   return (
     <div className="relative h-full w-full">
-      {/* Grid toggle button — top-right corner */}
-      <div className="absolute right-3 top-3 z-10">
+      {/* Top-right buttons */}
+      <div className="absolute right-3 top-3 z-10 flex gap-2">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setResetCounter((c) => c + 1)}
+          className="bg-black/60 text-white/90 hover:bg-black/80"
+          title="Reset camera view"
+        >
+          <RotateCcw className="mr-1.5 size-3.5" />
+          Reset View
+        </Button>
         <Button
           variant="secondary"
           size="sm"
@@ -102,12 +172,7 @@ export function TowerViewer({ config }: { config: TowerConfig | null }) {
 
       <Canvas
         shadows
-        camera={{
-          position: [camX, camY, camZ],
-          fov: 45,
-          near: 0.1,
-          far: 5000,
-        }}
+        camera={{ position: defaultCamPos, fov: 45, near: 0.1, far: 5000 }}
         gl={{ antialias: true, preserveDrawingBuffer: true }}
       >
         <color attach="background" args={["#0e0f12"]} />
@@ -126,16 +191,12 @@ export function TowerViewer({ config }: { config: TowerConfig | null }) {
           shadow-camera-top={camDist * 1.5}
           shadow-camera-bottom={-camDist * 1.5}
         />
-        <directionalLight
-          position={[-camDist, -camDist * 0.4, camDist * 0.6]}
-          intensity={0.4}
-        />
+        <directionalLight position={[-camDist, -camDist * 0.4, camDist * 0.6]} intensity={0.4} />
 
         <Suspense fallback={null}>
           <Environment preset="warehouse" />
         </Suspense>
 
-        {/* Floor grid — toggleable */}
         {showGrid && (
           <Grid
             args={[40, 40]}
@@ -152,27 +213,31 @@ export function TowerViewer({ config }: { config: TowerConfig | null }) {
           />
         )}
 
-        {/* The tower, scaled to "viewing units" */}
-        {/* Rotate -90° around X so Z-up geometry appears Y-up (three.js default) */}
+        {/* Tower: rotated -90° around X so Z-up becomes Y-up */}
         <group scale={scale} rotation={[-Math.PI / 2, 0, 0]}>
           <group position={[0, 0, 0]}>
             <Suspense fallback={<FallbackCube />}>
-              <ScaffoldTowerMesh config={debounced} />
+              <ScaffoldTowerMesh
+                config={debounced}
+                onPartClick={(name, pos) => {
+                  setFocusTarget({ name, pos });
+                }}
+              />
             </Suspense>
           </group>
         </group>
 
-        <OrbitControls
-          enableDamping
-          dampingFactor={0.08}
-          minDistance={2}
-          maxDistance={Math.max(camDist * 4, 30)}
-          maxPolarAngle={Math.PI * 0.49}
-          target={[0, targetY, 0]}
+        {/* Camera controller — handles focus + reset */}
+        <CameraController
+          focusTarget={focusTarget}
+          resetCounter={resetCounter}
+          scale={scale}
+          defaultCamPos={defaultCamPos}
+          defaultTarget={defaultTarget}
         />
       </Canvas>
 
-      {/* Overlay: dimensions + scale */}
+      {/* Overlay: dimensions + focused part */}
       <div className="pointer-events-none absolute left-4 top-4 rounded-md bg-black/60 px-3 py-2 text-xs text-white/90 backdrop-blur">
         <div className="font-semibold">
           {debounced.bays_x}×{debounced.bays_y} bays · {debounced.num_lifts} lifts
@@ -183,14 +248,19 @@ export function TowerViewer({ config }: { config: TowerConfig | null }) {
           {((debounced.num_lifts * debounced.lift_height) / 1000).toFixed(2)}m
         </div>
         <div className="mt-0.5 text-white/40">
-          scale: 1u = {Math.round(1 / scale)} mm · orbit / scroll to inspect
+          scale: 1u = {Math.round(1 / scale)} mm · click parts to focus · orbit / scroll to inspect
         </div>
+        {focusTarget && (
+          <div className="mt-1.5 flex items-center gap-1 rounded bg-primary/20 px-2 py-1">
+            <Focus className="size-3 text-primary" />
+            <span className="font-medium text-primary">{focusTarget.name}</span>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-/** Tiny placeholder shown while meshes hydrate. */
 function FallbackCube() {
   return (
     <mesh position={[0, 0, 1]}>
@@ -200,7 +270,6 @@ function FallbackCube() {
   );
 }
 
-/** Loading placeholder used by the page-level Suspense boundary. */
 export function TowerViewerSkeleton() {
   return (
     <div className="flex h-full w-full items-center justify-center bg-[#0e0f12]">
