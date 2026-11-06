@@ -50,7 +50,6 @@ export function TowerViewer({ config }: { config: TowerConfig | null }) {
 
   const maxDim = Math.max(frame.radius * 2, frame.height);
   const scale = 6 / Math.max(maxDim, 1);
-  const camDist = (frame.radius + frame.height) * 1.8 * scale + 4;
 
   if (!debounced) {
     return (
@@ -61,29 +60,21 @@ export function TowerViewer({ config }: { config: TowerConfig | null }) {
   }
 
   // Position camera so the tower appears STANDING UP (vertical, not laying down)
-  // For a tall tower, we need to:
-  // 1. Position the camera at a 3/4 view (front-right-above)
-  // 2. Look at the tower's vertical midpoint (so the whole height is visible)
-  // 3. Use enough distance to frame the full height
+  // Three.js default is Y-up. After rotating the tower group -90° around X,
+  // the tower's Z (height) becomes Y. So we frame using Y as the vertical.
   const towerHeightScaled = frame.height * scale;
   const towerRadiusScaled = frame.radius * scale;
-  // Camera distance must be large enough to see the full height at 38° FOV
-  // For a tower of height H, we need distance >= H / (2 * tan(fov/2))
-  // With FOV=38°, tan(19°)≈0.344, so distance >= H / 0.688 ≈ H * 1.45
-  const camDistNeeded = Math.max(
-    towerHeightScaled * 1.5,
-    towerRadiusScaled * 3.0,
-    10,
-  );
-  // Camera position: 3/4 view from front-right, elevated
-  // Elevation: 25° above horizontal (so we see the top of the tower)
-  // Azimuth: 35° from front (so we see two sides)
-  const elevAngle = Math.PI / 7.2; // 25° elevation
-  const azimAngle = Math.PI / 5.14; // 35° azimuth
-  const horizDist = Math.cos(elevAngle) * camDistNeeded;
-  const camX = horizDist * Math.sin(azimAngle);   // right
-  const camY = -horizDist * Math.cos(azimAngle); // front (negative Y)
-  const camZ = Math.sin(elevAngle) * camDistNeeded + towerHeightScaled * 0.5;
+
+  // Camera distance: enough to see the full tower height
+  const camDist = Math.max(towerHeightScaled * 1.2, towerRadiusScaled * 3, 12);
+
+  // Camera position: front-right-above (in Y-up space)
+  const camX = camDist * 0.7;        // right
+  const camY = towerHeightScaled * 0.6 + camDist * 0.3;  // up (above midpoint)
+  const camZ = camDist * 0.7;        // front
+
+  // OrbitControls target: tower's vertical midpoint (Y is up after rotation)
+  const targetY = towerHeightScaled * 0.5;
 
   return (
     <div className="relative h-full w-full">
@@ -120,20 +111,20 @@ export function TowerViewer({ config }: { config: TowerConfig | null }) {
         gl={{ antialias: true, preserveDrawingBuffer: true }}
       >
         <color attach="background" args={["#0e0f12"]} />
-        <fog attach="fog" args={["#0e0f12", camDistNeeded * 1.5, camDistNeeded * 4]} />
+        <fog attach="fog" args={["#0e0f12", camDist * 1.5, camDist * 4]} />
 
         <ambientLight intensity={0.4} />
         <directionalLight
-          position={[camDistNeeded, camDistNeeded * 1.2, camDist]}
+          position={[camDist, camDist * 1.2, camDist]}
           intensity={1.6}
           castShadow
           shadow-mapSize={[2048, 2048]}
           shadow-camera-near={0.1}
-          shadow-camera-far={camDistNeeded * 5}
-          shadow-camera-left={-camDistNeeded * 1.5}
-          shadow-camera-right={camDistNeeded * 1.5}
-          shadow-camera-top={camDistNeeded * 1.5}
-          shadow-camera-bottom={-camDistNeeded * 1.5}
+          shadow-camera-far={camDist * 5}
+          shadow-camera-left={-camDist * 1.5}
+          shadow-camera-right={camDist * 1.5}
+          shadow-camera-top={camDist * 1.5}
+          shadow-camera-bottom={-camDist * 1.5}
         />
         <directionalLight
           position={[-camDist, -camDist * 0.4, camDist * 0.6]}
@@ -155,14 +146,15 @@ export function TowerViewer({ config }: { config: TowerConfig | null }) {
             sectionSize={2.5}
             sectionThickness={1.1}
             sectionColor="#6a6a78"
-            fadeDistance={camDistNeeded * 2.4}
+            fadeDistance={camDist * 2.4}
             fadeStrength={1}
             infiniteGrid={false}
           />
         )}
 
         {/* The tower, scaled to "viewing units" */}
-        <group scale={scale}>
+        {/* Rotate -90° around X so Z-up geometry appears Y-up (three.js default) */}
+        <group scale={scale} rotation={[-Math.PI / 2, 0, 0]}>
           <group position={[0, 0, 0]}>
             <Suspense fallback={<FallbackCube />}>
               <ScaffoldTowerMesh config={debounced} />
@@ -174,9 +166,9 @@ export function TowerViewer({ config }: { config: TowerConfig | null }) {
           enableDamping
           dampingFactor={0.08}
           minDistance={2}
-          maxDistance={Math.max(camDistNeeded * 4, 30)}
+          maxDistance={Math.max(camDist * 4, 30)}
           maxPolarAngle={Math.PI * 0.49}
-          target={[0, 0, towerHeightScaled * 0.5]}
+          target={[0, targetY, 0]}
         />
       </Canvas>
 

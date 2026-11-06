@@ -26,6 +26,14 @@ export interface BayConfig {
   lift_height: number;
   /** Number of lifts (levels) */
   num_lifts: number;
+  /** Base type: adjustable jack or caster wheel */
+  base_type: "jack" | "wheel";
+  /** Include grating platforms at each level */
+  include_gratings: boolean;
+  /** Include toeboards at each level */
+  include_toeboards: boolean;
+  /** Include diagonal braces */
+  include_braces: boolean;
 }
 
 export interface PartsBom {
@@ -35,6 +43,8 @@ export interface PartsBom {
   base_jacks: number;
   rosettes: number;
   planks: number;
+  gratings: number;
+  toeboards: number;
   total_parts: number;
   estimated_weight_kg: number;
 }
@@ -129,17 +139,24 @@ function calculateBays(requested: number, standards: number[]): { count: number;
  * This is the core "assemble on demand" function — given a user's request
  * like "2.5x2x6m", it calculates the bay configuration and complete BOM.
  */
-export function assembleTower(input: TowerDimensions): AssemblyResult {
+export function assembleTower(
+  input: TowerDimensions,
+  overrides?: Partial<BayConfig>
+): AssemblyResult {
   const warnings: string[] = [];
 
-  // Calculate bay configuration
-  const bayX = calculateBays(input.requestedLength, STANDARD_BAY_LENGTHS);
-  const bayY = calculateBays(input.requestedWidth, STANDARD_BAY_WIDTHS);
-  const liftHeight = closestStandard(
-    Math.min(input.requestedHeight, 2000), // prefer 2000mm lifts
+  // Calculate bay configuration — use overrides if provided, otherwise calculate
+  const bayX = overrides?.bays_x && overrides?.bay_length_x
+    ? { count: overrides.bays_x, size: overrides.bay_length_x }
+    : calculateBays(input.requestedLength, STANDARD_BAY_LENGTHS);
+  const bayY = overrides?.bays_y && overrides?.bay_length_y
+    ? { count: overrides.bays_y, size: overrides.bay_length_y }
+    : calculateBays(input.requestedWidth, STANDARD_BAY_WIDTHS);
+  const liftHeight = overrides?.lift_height ?? closestStandard(
+    Math.min(input.requestedHeight, 2000),
     STANDARD_LIFT_HEIGHTS
   );
-  const numLifts = Math.max(1, Math.round(input.requestedHeight / liftHeight));
+  const numLifts = overrides?.num_lifts ?? Math.max(1, Math.round(input.requestedHeight / liftHeight));
 
   const config: BayConfig = {
     bays_x: bayX.count,
@@ -148,6 +165,10 @@ export function assembleTower(input: TowerDimensions): AssemblyResult {
     bay_length_y: bayY.size,
     lift_height: liftHeight,
     num_lifts: numLifts,
+    base_type: overrides?.base_type ?? "jack",
+    include_gratings: overrides?.include_gratings ?? true,
+    include_toeboards: overrides?.include_toeboards ?? true,
+    include_braces: overrides?.include_braces ?? true,
   };
 
   // Calculate actual dimensions (may differ from requested due to standard bay sizes)
@@ -182,31 +203,36 @@ export function assembleTower(input: TowerDimensions): AssemblyResult {
   const rosettes = standards * rosettesPerStandard;
 
   // Ledgers: 2 per bay per level (one on each side), plus perimeter
-  // Simplified: count horizontal tubes at each level
   const ledgersXPerLevel = (bayX.count) * (bayY.count + 1); // along X
   const ledgersYPerLevel = (bayX.count + 1) * (bayY.count); // along Y
   const ledgers = (ledgersXPerLevel + ledgersYPerLevel) * numLifts;
 
   // Braces: ONE diagonal per perimeter bay face per level
-  // (Real scaffold practice — opposite sides get opposite diagonal directions,
-  // but only ONE diagonal per face, not X-pattern which is impossible to install)
   const perimeterFaces = 2 * (bayX.count + bayY.count);
-  const braces = perimeterFaces * numLifts;
+  const braces = config.include_braces ? perimeterFaces * numLifts : 0;
 
-  // Base jacks: one per standard
+  // Base jacks or wheels: one per standard
   const baseJacks = standards;
 
-  // Planks: one per bay (if top level has planks)
+  // Planks: one per bay (top level only)
   const planks = bayX.count * bayY.count;
 
-  // Estimated weight (rough: 5kg per standard, 3kg per ledger, 2kg per brace, 2kg per jack)
+  // Gratings: one per bay per level (if enabled)
+  const gratings = config.include_gratings ? bayX.count * bayY.count * numLifts : 0;
+
+  // Toeboards: 4 sides per level (if enabled)
+  const toeboards = config.include_toeboards ? 4 * numLifts : 0;
+
+  // Estimated weight
   const estimatedWeight =
     standards * 5 +
     ledgers * 3 +
     braces * 2 +
     baseJacks * 2 +
     rosettes * 0.6 +
-    planks * 8;
+    planks * 8 +
+    gratings * 6 +
+    toeboards * 1.5;
 
   const bom: PartsBom = {
     standards,
@@ -215,7 +241,9 @@ export function assembleTower(input: TowerDimensions): AssemblyResult {
     base_jacks: baseJacks,
     rosettes,
     planks,
-    total_parts: standards + ledgers + braces + baseJacks + rosettes + planks,
+    gratings,
+    toeboards,
+    total_parts: standards + ledgers + braces + baseJacks + rosettes + planks + gratings + toeboards,
     estimated_weight_kg: Math.round(estimatedWeight),
   };
 
@@ -255,12 +283,15 @@ export function assemblyToTowerConfig(result: AssemblyResult) {
     spigot_length: 150,
     ledger_od: 48.3,
     ledger_wall: 3.2,
-    include_braces: true,
-    include_base_jacks: true,
+    include_braces: result.config.include_braces,
+    include_base_jacks: result.config.base_type === "jack",
     base_jack_od: 38,
     base_jack_length: 600,
     include_planks: false,
     plank_thickness: 50,
+    include_gratings: result.config.include_gratings,
+    include_toeboards: result.config.include_toeboards,
+    base_type: result.config.base_type,
   };
 }
 

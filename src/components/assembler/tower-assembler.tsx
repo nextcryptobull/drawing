@@ -23,6 +23,7 @@ import {
   assemblyToTowerConfig,
   formatDimensions,
   TOWER_PRESETS,
+  type BayConfig,
 } from "@/lib/tower-assembler";
 
 import { Button } from "@/components/ui/button";
@@ -63,13 +64,14 @@ const TowerViewer = dynamic(
 export function TowerAssembler() {
   const [input, setInput] = useState("2x2x6m");
   const [downloading, setDownloading] = useState(false);
+  const [overrides, setOverrides] = useState<Partial<BayConfig>>({});
 
-  // Parse and assemble as user types
+  // Parse and assemble as user types — applies overrides on top of parsed dims
   const result = useMemo(() => {
     const dims = parseDimensions(input);
     if (!dims) return null;
-    return assembleTower(dims);
-  }, [input]);
+    return assembleTower(dims, overrides);
+  }, [input, overrides]);
 
   // Generate the TowerConfig for the 3D viewer (null if input invalid)
   const towerConfig = useMemo(() => {
@@ -119,25 +121,12 @@ export function TowerAssembler() {
   const inputValid = result !== null;
 
   /**
-   * Update the input string from a partial config override.
-   * This lets the stepper controls (bays_x, bays_y, etc.) directly modify
-   * the tower without the user retyping the dimension string.
+   * Update the tower config via overrides — this lets the stepper controls
+   * (bays_x, bays_y, num_lifts, etc.) directly modify the tower without
+   * rewriting the dimension string.
    */
-  function updateFromConfig(patch: Partial<{
-    bays_x: number;
-    bays_y: number;
-    num_lifts: number;
-    bay_length_x: number;
-    bay_length_y: number;
-    lift_height: number;
-  }>) {
-    if (!result) return;
-    const c = { ...result.config, ...patch };
-    // Reconstruct the input string from the new config
-    const lengthM = (c.bays_x * c.bay_length_x / 1000).toFixed(2).replace(/\.?0+$/, "");
-    const widthM = (c.bays_y * c.bay_length_y / 1000).toFixed(2).replace(/\.?0+$/, "");
-    const heightM = ((c.num_lifts * c.lift_height) / 1000).toFixed(2).replace(/\.?0+$/, "");
-    setInput(`${lengthM}x${widthM}x${heightM}m`);
+  function updateFromConfig(patch: Partial<BayConfig>) {
+    setOverrides((prev) => ({ ...prev, ...patch }));
   }
 
   return (
@@ -361,6 +350,49 @@ export function TowerAssembler() {
                             step={500}
                             onChange={(v) => updateFromConfig({ lift_height: v })}
                           />
+
+                          {/* Divider */}
+                          <div className="border-t pt-2" />
+
+                          {/* Base type: jack or wheel */}
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs text-muted-foreground">Base type</span>
+                            <div className="flex gap-1">
+                              <Button
+                                variant={result.config.base_type === "jack" ? "default" : "outline"}
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => updateFromConfig({ base_type: "jack" })}
+                              >
+                                Jack
+                              </Button>
+                              <Button
+                                variant={result.config.base_type === "wheel" ? "default" : "outline"}
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => updateFromConfig({ base_type: "wheel" })}
+                              >
+                                Wheel
+                              </Button>
+                            </div>
+                          </div>
+
+                          {/* Toggles: gratings, toeboards, braces */}
+                          <ToggleRow
+                            label="Grating platforms"
+                            checked={result.config.include_gratings}
+                            onChange={(v) => updateFromConfig({ include_gratings: v })}
+                          />
+                          <ToggleRow
+                            label="Toeboards"
+                            checked={result.config.include_toeboards}
+                            onChange={(v) => updateFromConfig({ include_toeboards: v })}
+                          />
+                          <ToggleRow
+                            label="Diagonal braces"
+                            checked={result.config.include_braces}
+                            onChange={(v) => updateFromConfig({ include_braces: v })}
+                          />
                         </CardContent>
                       </Card>
 
@@ -377,8 +409,10 @@ export function TowerAssembler() {
                             <BomItem label="Standards (vertical tubes)" count={result.bom.standards} unit="pcs" />
                             <BomItem label="Ledgers (horizontal)" count={result.bom.ledgers} unit="pcs" />
                             <BomItem label="Diagonal braces" count={result.bom.braces} unit="pcs" />
-                            <BomItem label="Base jacks" count={result.bom.base_jacks} unit="pcs" />
+                            <BomItem label={result.config.base_type === "wheel" ? "Caster wheels" : "Base jacks"} count={result.bom.base_jacks} unit="pcs" />
                             <BomItem label="Rosettes" count={result.bom.rosettes} unit="pcs" />
+                            <BomItem label="Grating platforms" count={result.bom.gratings} unit="pcs" />
+                            <BomItem label="Toeboards" count={result.bom.toeboards} unit="pcs" />
                             <BomItem label="Steel planks (top)" count={result.bom.planks} unit="pcs" />
                           </div>
                           <div className="flex items-center justify-between border-t pt-2">
@@ -548,6 +582,41 @@ function StepperRow({
           <Plus className="size-3" />
         </Button>
       </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Toggle row — on/off switch for boolean options                             */
+/* -------------------------------------------------------------------------- */
+
+function ToggleRow({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <button
+        type="button"
+        onClick={() => onChange(!checked)}
+        className={cn(
+          "relative h-5 w-9 rounded-full transition-colors",
+          checked ? "bg-primary" : "bg-muted",
+        )}
+      >
+        <span
+          className={cn(
+            "absolute top-0.5 size-4 rounded-full bg-white transition-transform",
+            checked ? "translate-x-4" : "translate-x-0.5",
+          )}
+        />
+      </button>
     </div>
   );
 }
