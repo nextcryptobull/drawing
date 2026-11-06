@@ -1,41 +1,30 @@
 {
   "$schema": "https://railpack.com/schema.json",
   "name": "scaffold-configurator",
-  "providers": [
-    {
-      "node": {
-        "version": "22"
-      }
-    },
-    {
-      "python": {
-        "version": "3.12"
-      }
+  "providers": {
+    "node": {
+      "version": "22"
     }
-  ],
+  },
+  "packages": {
+    "node": "22"
+  },
   "build": {
     "steps": [
       {
         "cache": {
           "directories": [
-            "~/.bun/install/cache",
             "node_modules",
             ".next/cache"
           ]
         },
         "commands": [
-          "npm install -g bun 2>/dev/null || true",
-          "bun install --frozen-lockfile || bun install || npm install --no-audit --no-fund"
+          "npm install --no-audit --no-fund"
         ]
       },
       {
         "commands": [
-          "bun run build || npm run build"
-        ]
-      },
-      {
-        "commands": [
-          "pip install --no-cache-dir cadquery || pip3 install --no-cache-dir cadquery"
+          "npm run build"
         ]
       }
     ]
@@ -45,7 +34,6 @@
   },
   "variables": {
     "NODE_ENV": "production",
-    "PORT": "${PORT:-3000}",
     "HOSTNAME": "0.0.0.0",
     "PYTHON_BIN": "python3",
     "GENERATOR_PATH": "/app/scripts/generate_step.py",
