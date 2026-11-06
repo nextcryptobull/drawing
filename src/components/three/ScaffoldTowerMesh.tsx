@@ -550,24 +550,28 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
 
       {/* ---- Handrails and middle rails on TOP level ---- */}
       {/* EN 12811: top guardrail at 1000mm, middle rail at 500mm above platform.
-          Rails positioned OUTSIDE the frame posts (beyond the standard line).
+          Rails positioned OUTSIDE the frame posts (100mm beyond standard line).
           Rails on 3 sides (back, left, right) — front (+Y) open for access.
-          Guardrail posts extend from the top rosette upward 1000mm. */}
+          All coordinates in Z-up (tower's own coordinate system). */}
       {(() => {
         const topZ = towerHeight;
         const railH1 = topZ + 500; // middle rail
         const railH2 = topZ + 1000; // top guardrail
         const railR = tubeR * 0.8;
-        const offset = 100; // 100mm outside the standard line (outside frame)
+        const offset = 100; // 100mm outside the standard line
+        // Rotation to make cylinder axis point along X (default is Y)
+        const alongX: [number, number, number] = [0, 0, Math.PI / 2];
+        // Rotation to make cylinder axis point along Y (default is Y, no rotation needed)
+        const alongY: [number, number, number] = [0, 0, 0];
 
         return (
           <group>
-            {/* Back side (Y-) — 2 rails OUTSIDE the frame */}
+            {/* Back side (Y-) — rail runs along X, positioned at Y=-towerY/2-offset */}
             {[railH1, railH2].map((rz, ri) => (
               <mesh
                 key={`rail-back-${ri}`}
                 position={[0, -towerY / 2 - offset, rz]}
-                rotation={[0, 0, Math.PI / 2]}
+                rotation={alongX}
                 material={materials.standard}
                 castShadow
               >
@@ -575,11 +579,12 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
                 <meshStandardMaterial color="#8e9098" />
               </mesh>
             ))}
-            {/* Right side (X+) — 2 rails OUTSIDE */}
+            {/* Right side (X+) — rail runs along Y, positioned at X=towerX/2+offset */}
             {[railH1, railH2].map((rz, ri) => (
               <mesh
                 key={`rail-right-${ri}`}
                 position={[towerX / 2 + offset, 0, rz]}
+                rotation={alongY}
                 material={materials.standard}
                 castShadow
               >
@@ -587,11 +592,12 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
                 <meshStandardMaterial color="#8e9098" />
               </mesh>
             ))}
-            {/* Left side (X-) — 2 rails OUTSIDE */}
+            {/* Left side (X-) — rail runs along Y, positioned at X=-towerX/2-offset */}
             {[railH1, railH2].map((rz, ri) => (
               <mesh
                 key={`rail-left-${ri}`}
                 position={[-towerX / 2 - offset, 0, rz]}
+                rotation={alongY}
                 material={materials.standard}
                 castShadow
               >
@@ -599,7 +605,7 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
                 <meshStandardMaterial color="#8e9098" />
               </mesh>
             ))}
-            {/* Guardrail posts at corners — extend 1000mm above top platform */}
+            {/* Guardrail posts at corners — vertical (Z-up), 1000mm tall */}
             {standardPositions.map(([x, y], idx) => (
               <mesh
                 key={`grpost-${idx}`}
@@ -612,39 +618,35 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
                 <meshStandardMaterial color="#8e9098" />
               </mesh>
             ))}
-            {/* Trap door on top level — a hinged section in the grating
-                that can open for ladder access.
-                Rendered as a slightly raised, differently-colored board
-                on the access side of the top level. */}
-            <mesh
-              key="trapdoor"
-              position={[
-                // Position at the opening section of the TOP level
-                // (opposite side from the grating boards on that level)
-                (() => {
-                  const topLevelIdx = rosetteZs.length - 1;
-                  const levelNum = topLevelIdx + 1;
-                  const isOpenAtFront = levelNum % 2 === 1;
-                  const sectionWidth = bay_length_x / 3;
-                  const bayCenterX = (0 + 0.5) * bay_length_x - towerX / 2;
-                  // Place trap door at the OPEN section
-                  return isOpenAtFront
-                    ? bayCenterX + bay_length_x / 2 - sectionWidth / 2 // front section
-                    : bayCenterX - bay_length_x / 2 + sectionWidth / 2; // back section
-                })(),
-                (0 + 0.5) * bay_length_y - towerY / 2,
-                towerHeight - 4,
-              ]}
-              rotation={[0, 0, 0]}
-              castShadow
-            >
-              <boxGeometry args={[
-                (bay_length_x / 3) * 0.88,
-                bay_length_y * 0.88,
-                6,
-              ]} />
-              <meshStandardMaterial color="#d4a017" roughness={0.6} metalness={0.3} />
-            </mesh>
+            {/* Trap door on top level — yellow hinged section at the open grating section */}
+            {(() => {
+              const topLevelIdx = rosetteZs.length - 1;
+              const levelNum = topLevelIdx + 1;
+              const isOpenAtFront = levelNum % 2 === 1;
+              const sectionWidth = bay_length_x / 3;
+              const bayCenterX = bay_length_x / 2 - towerX / 2;
+              const bayCenterY = bay_length_y / 2 - towerY / 2;
+              // Place trap door at the OPEN section (where there are no grating boards)
+              const trapX = isOpenAtFront
+                ? bayCenterX + sectionWidth / 2  // front (+X) section is open
+                : bayCenterX - sectionWidth / 2; // back (-X) section is open
+              const trapZ = topZ - 4;
+              const trapThk = 6;
+              return (
+                <mesh
+                  key="trapdoor"
+                  position={[trapX, bayCenterY, trapZ]}
+                  castShadow
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onPartClick) onPartClick("Trap door", [trapX, bayCenterY, trapZ]);
+                  }}
+                >
+                  <boxGeometry args={[sectionWidth * 0.85, bay_length_y * 0.85, trapThk]} />
+                  <meshStandardMaterial color="#e8a020" roughness={0.5} metalness={0.4} />
+                </mesh>
+              );
+            })()}
           </group>
         );
       })()}
