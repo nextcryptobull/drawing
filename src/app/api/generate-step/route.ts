@@ -109,7 +109,7 @@ export async function POST(req: Request) {
   }
 
   const cfg = body as { type?: string };
-  if (!cfg?.type || !["caster", "rosette", "standard"].includes(cfg.type)) {
+  if (!cfg?.type || !["caster", "rosette", "standard", "tower"].includes(cfg.type)) {
     return NextResponse.json(
       { error: `Unknown part type: ${cfg?.type ?? "(none)"}` },
       { status: 400 },
