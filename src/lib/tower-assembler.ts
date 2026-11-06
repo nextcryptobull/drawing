@@ -217,8 +217,8 @@ export function assembleTower(
   // Planks: one per bay (top level only)
   const planks = bayX.count * bayY.count;
 
-  // Gratings: 1 per bay per level (1 piece + 2 open for access)
-  const gratings = config.include_gratings ? bayX.count * bayY.count * numLifts : 0;
+  // Gratings: 2 per bay per level (2 pieces + 1 open for access)
+  const gratings = config.include_gratings ? bayX.count * bayY.count * numLifts * 2 : 0;
 
   // Toeboards: 4 sides per level (if enabled)
   const toeboards = config.include_toeboards ? 4 * numLifts : 0;
@@ -243,7 +243,7 @@ export function assembleTower(
     Math.max(bayX.size, bayY.size) ** 2 + liftHeight ** 2
   );
   const braceWeight = (braceLength / 1000) * 1.7 + 1.0;
-  const gratingArea = ((bayX.size / 3) * bayY.size) / 1_000_000; // m² (1/3 of bay)
+  const gratingArea = ((bayX.size / 3) * bayY.size * 2) / 1_000_000; // m² (2/3 of bay)
   const gratingWeight = gratingArea * 30; // 30 kg/m²
 
   const baseWeight = config.base_type === "wheel" ? 4.5 : 2.5;

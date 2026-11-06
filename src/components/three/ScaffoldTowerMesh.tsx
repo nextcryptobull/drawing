@@ -447,11 +447,19 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
         </mesh>
       ))}
 
-      {/* ---- Grating platforms per level (1 piece + 2 open for access) ---- */}
-      {/* Gratings follow the WIDTH (Y direction, shorter span).
-          Each bay is divided into 3 sections along X (length).
-          Only 1 section (back, -X side) gets a grating board.
-          The front 2 sections are OPEN for ladder/stair access. */}
+      {/* ---- Grating platforms per level (2 pieces + 1 open for access) ---- */}
+      {/* Working platform = 2/3 of bay (LARGER than access).
+          Access opening = 1/3 of bay (SMALLER than working platform).
+          
+          Gratings follow the WIDTH (Y direction, shorter span).
+          Bay is divided into 3 sections along X (length).
+          
+          Opening position STAGGERS between levels:
+          - Odd levels (1,3,5...): opening on the +X (right/front) side
+          - Even levels (2,4,6...): opening on the -X (left/back) side
+          
+          This prevents fall-through: the top level's opening is closed
+          by the level below it (staggered pattern). */}
       {include_gratings && rosetteZs.map((z, levelIdx) => (
         <group key={`grating-${levelIdx}`}>
           {Array.from({ length: bays_x }).map((_, i) =>
@@ -466,12 +474,23 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
               // Divide bay into 3 sections along X (length direction)
               const sectionWidth = bay_length_x / 3;
 
-              // Only 1 grating board in the back (-X) section
-              const boardX = bayCenterX - bay_length_x / 2 + sectionWidth / 2;
+              // Determine which sections get gratings (2 pieces)
+              // Odd levels (0-indexed even): cover sections 0 and 1 (back 2/3), open section 2 (front +X)
+              // Even levels (0-indexed odd): cover sections 1 and 2 (front 2/3), open section 0 (back -X)
+              const levelNum = levelIdx + 1; // 1-indexed
+              const isOpenAtFront = levelNum % 2 === 1; // odd levels open at front
+              
+              // Section X positions (0=back, 1=middle, 2=front)
+              const sectionX0 = bayCenterX - bay_length_x / 2 + sectionWidth / 2;
+              const sectionX1 = bayCenterX - bay_length_x / 2 + sectionWidth + sectionWidth / 2;
+              const sectionX2 = bayCenterX - bay_length_x / 2 + 2 * sectionWidth + sectionWidth / 2;
 
-              return (
+              // Determine which 2 sections get boards
+              const boardSections = isOpenAtFront ? [sectionX0, sectionX1] : [sectionX1, sectionX2];
+
+              return boardSections.map((boardX, bi) => (
                 <mesh
-                  key={`grating-L${levelIdx}-${i}-${j}`}
+                  key={`grating-L${levelIdx}-${i}-${j}-${bi}`}
                   position={[boardX, bayCenterY, gratingZ]}
                   material={materials.grating}
                   receiveShadow
@@ -483,7 +502,7 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
                 >
                   <boxGeometry args={[sectionWidth * 0.9, boardLen, gratingThk]} />
                 </mesh>
-              );
+              ));
             })
           )}
         </group>

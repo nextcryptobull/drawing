@@ -637,35 +637,45 @@ def build_tower(cfg: Dict[str, Any]) -> cq.Assembly:
                     color=cq.Color(0.55, 0.40, 0.25),
                 )
 
-    # Grating platforms per level — follows WIDTH (shorter), 1 piece + 2 open for access
-    # Gratings span along Y (width direction, shorter).
-    # Bay divided into 3 sections along X (length). Only 1 section (back, -X) gets a board.
+    # Grating platforms per level — 2 pieces + 1 open (working platform > access)
+    # Working platform = 2/3 of bay (LARGER than access opening = 1/3).
+    # Gratings follow WIDTH (Y direction, shorter span).
+    # Bay divided into 3 sections along X (length).
+    #
+    # Opening STAGGERS between levels:
+    # - Odd levels (1,3,5...): opening on +X (front) side, boards on sections 0,1
+    # - Even levels (2,4,6...): opening on -X (back) side, boards on sections 1,2
+    # This prevents fall-through: each opening is covered by the level below.
     include_gratings = bool(cfg.get("include_gratings", True))
     if include_gratings:
         grating_thk = 8.0
         for k in range(1, num_lifts + 1):
             level_z = k * lift_h
             grating_z = level_z - grating_thk / 2.0 - 2.0
+            is_open_at_front = (k % 2 == 1)  # odd levels open at front (+X)
             for i in range(bays_x):
                 for j in range(bays_y):
                     bay_center_x = (i + 0.5) * bay_x - tower_x / 2.0
                     bay_center_y = (j + 0.5) * bay_y - tower_y / 2.0
-                    # Board follows WIDTH (Y, shorter)
                     board_len_y = bay_y * 0.94
-                    # Divide bay into 3 sections along X (length)
                     section_width = bay_x / 3.0
-                    # Only 1 board in the back (-X) section
-                    board_x = bay_center_x - bay_x / 2.0 + section_width / 2.0
-                    board = (
-                        cq.Workplane("XY")
-                        .box(section_width * 0.9, board_len_y, grating_thk)
-                    )
-                    asm.add(
-                        board,
-                        name=f"Grating_L{k}_{i}_{j}",
-                        loc=cq.Location(cq.Vector(board_x, bay_center_y, grating_z)),
-                        color=cq.Color(0.35, 0.42, 0.48),
-                    )
+                    # Section X positions (0=back, 1=middle, 2=front)
+                    section_x0 = bay_center_x - bay_x / 2.0 + section_width / 2.0
+                    section_x1 = bay_center_x - bay_x / 2.0 + section_width + section_width / 2.0
+                    section_x2 = bay_center_x - bay_x / 2.0 + 2.0 * section_width + section_width / 2.0
+                    # Which 2 sections get boards
+                    board_sections = [section_x0, section_x1] if is_open_at_front else [section_x1, section_x2]
+                    for bi, board_x in enumerate(board_sections):
+                        board = (
+                            cq.Workplane("XY")
+                            .box(section_width * 0.9, board_len_y, grating_thk)
+                        )
+                        asm.add(
+                            board,
+                            name=f"Grating_L{k}_{i}_{j}_{bi}",
+                            loc=cq.Location(cq.Vector(board_x, bay_center_y, grating_z)),
+                            color=cq.Color(0.35, 0.42, 0.48),
+                        )
 
     # Toeboards per level (yellow safety boards around platform perimeter)
     # The +Y (front/access) side has NO toeboard — open for ladder access.
