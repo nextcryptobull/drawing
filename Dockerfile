@@ -1,8 +1,7 @@
 # =============================================================================
 # Scaffold Parts Configurator — Dockerfile (production)
 # =============================================================================
-# Bundles Node.js + Python + cadquery in a single image.
-# Deployable to Railway, Render, Fly.io, Cloud Run, etc.
+# Two-stage build: Node.js app + Python + cadquery
 # =============================================================================
 
 # ---- Stage 1: Build the Next.js standalone bundle --------------------------
@@ -26,27 +25,27 @@ COPY . .
 RUN bun run build 2>/dev/null || npm run build
 
 # ---- Stage 2: Production image with Node + Python + cadquery --------------
-FROM node:22-slim AS runner
+FROM python:3.12-slim AS runner
 
-# Install Python 3 + pip + system deps for cadquery (OCP needs OpenGL libs)
+# Install system deps for cadquery (OCP needs OpenGL libs)
+# Note: python:3.12-slim already has Python + pip, no need to install separately
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3 \
-        python3-pip \
-        python3-venv \
         libgl1 \
         libglib2.0-0 \
         libxrender1 \
         libxext6 \
         libsm6 \
+        curl \
         && rm -rf /var/lib/apt/lists/*
 
-# Create a Python venv for cadquery (avoids --break-system-packages issues)
-RUN python3 -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
+# Install Node.js 22 in the Python image
+RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
+    rm -rf /var/lib/apt/lists/*
 
-# Install cadquery (this is the heavy step, ~200MB)
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir cadquery
+# Install cadquery (heavy step, ~200MB)
+RUN pip install --no-cache-dir cadquery
 
 # Verify cadquery works at build time (fail fast if broken)
 RUN python3 -c "import cadquery; print('cadquery', cadquery.__version__, 'OK')"
@@ -79,9 +78,9 @@ ENV TMP_DIR=/tmp/scaffold-step-gen
 
 EXPOSE 3000
 
-# Simple healthcheck using node http module
+# Healthcheck using curl (lighter than node http)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD node -e "const h=require('http');h.get('http://localhost:3000/',(r)=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"
+    CMD curl -sf http://localhost:3000/ || exit 1
 
 # Start the Next.js server
 CMD ["node", "server.js"]

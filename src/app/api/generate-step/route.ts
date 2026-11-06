@@ -21,10 +21,12 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const PYTHON_BIN = "/home/z/.venv/bin/python3";
-const GENERATOR = "/home/z/my-project/scripts/generate_step.py";
-const WORK_DIR = "/home/z/my-project/download";
-const TMP_DIR = "/tmp/scaffold-step-gen";
+// Python binary + script paths — env-var override for Docker/production,
+// falls back to sandbox paths for local dev.
+const PYTHON_BIN = process.env.PYTHON_BIN || "python3";
+const GENERATOR = process.env.GENERATOR_PATH || path.join(process.cwd(), "scripts", "generate_step.py");
+const WORK_DIR = process.env.WORK_DIR || path.join(process.cwd(), "download");
+const TMP_DIR = process.env.TMP_DIR || "/tmp/scaffold-step-gen";
 
 /** Pretty filename for the downloaded STEP file. */
 function buildFileName(body: unknown): string {
