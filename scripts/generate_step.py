@@ -637,10 +637,9 @@ def build_tower(cfg: Dict[str, Any]) -> cq.Assembly:
                     color=cq.Color(0.55, 0.40, 0.25),
                 )
 
-    # Grating platforms per level — 1 piece + 2 sections open for access
-    # Each bay is divided into 3 equal sections along Y.
-    # Only 1 section (back, -Y side) gets a grating board.
-    # The front 2 sections are OPEN for ladder/stair access.
+    # Grating platforms per level — follows WIDTH (shorter), 1 piece + 2 open for access
+    # Gratings span along Y (width direction, shorter).
+    # Bay divided into 3 sections along X (length). Only 1 section (back, -X) gets a board.
     include_gratings = bool(cfg.get("include_gratings", True))
     if include_gratings:
         grating_thk = 8.0
@@ -651,18 +650,20 @@ def build_tower(cfg: Dict[str, Any]) -> cq.Assembly:
                 for j in range(bays_y):
                     bay_center_x = (i + 0.5) * bay_x - tower_x / 2.0
                     bay_center_y = (j + 0.5) * bay_y - tower_y / 2.0
-                    section_width = bay_y / 3.0
-                    board_len = bay_x * 0.94
-                    # Only 1 grating board in the back (-Y) section
-                    board_y = bay_center_y - bay_y / 2.0 + section_width / 2.0
+                    # Board follows WIDTH (Y, shorter)
+                    board_len_y = bay_y * 0.94
+                    # Divide bay into 3 sections along X (length)
+                    section_width = bay_x / 3.0
+                    # Only 1 board in the back (-X) section
+                    board_x = bay_center_x - bay_x / 2.0 + section_width / 2.0
                     board = (
                         cq.Workplane("XY")
-                        .box(board_len, section_width * 0.9, grating_thk)
+                        .box(section_width * 0.9, board_len_y, grating_thk)
                     )
                     asm.add(
                         board,
                         name=f"Grating_L{k}_{i}_{j}",
-                        loc=cq.Location(cq.Vector(bay_center_x, board_y, grating_z)),
+                        loc=cq.Location(cq.Vector(board_x, bay_center_y, grating_z)),
                         color=cq.Color(0.35, 0.42, 0.48),
                     )
 

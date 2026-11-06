@@ -223,16 +223,40 @@ export function assembleTower(
   // Toeboards: 4 sides per level (if enabled)
   const toeboards = config.include_toeboards ? 4 * numLifts : 0;
 
-  // Estimated weight
+  // Estimated weight — based on accurate industry-standard values
+  // Sources: ACE Scaffold catalog, EN 12811 specs, steel density 7.85 g/cm³
+  //
+  // Tube 48.3×3.2mm: 3.56 kg/m
+  // Rosette Ø122×10mm: 0.6 kg each
+  // Ledger (tube + 2 wedge heads): length × 3.56 + 1.0 kg
+  // Diagonal brace (30mm tube + 2 heads): length × 1.7 + 1.0 kg
+  // Base jack: 2.5 kg
+  // Steel grating: 30 kg/m² (each covers 1/3 of bay)
+  // Toeboard: 2 kg per piece
+  // Steel plank: 12 kg per piece
+
+  const towerH = numLifts * liftHeight;
+  const standardWeight = (towerH / 1000) * 3.56 + numLifts * 0.6 + 0.5; // tube + rosettes + spigot
+  const ledgerWeightX = (bayX.size / 1000) * 3.56 + 1.0;
+  const ledgerWeightY = (bayY.size / 1000) * 3.56 + 1.0;
+  const braceLength = Math.sqrt(
+    Math.max(bayX.size, bayY.size) ** 2 + liftHeight ** 2
+  );
+  const braceWeight = (braceLength / 1000) * 1.7 + 1.0;
+  const gratingArea = ((bayX.size / 3) * bayY.size) / 1_000_000; // m² (1/3 of bay)
+  const gratingWeight = gratingArea * 30; // 30 kg/m²
+
+  const baseWeight = config.base_type === "wheel" ? 4.5 : 2.5;
+
   const estimatedWeight =
-    standards * 5 +
-    ledgers * 3 +
-    braces * 2 +
-    baseJacks * 2 +
-    rosettes * 0.6 +
-    planks * 8 +
-    gratings * 6 +
-    toeboards * 1.5;
+    standards * standardWeight +
+    ledgersXPerLevel * numLifts * ledgerWeightX +
+    ledgersYPerLevel * numLifts * ledgerWeightY +
+    braces * braceWeight +
+    baseJacks * baseWeight +
+    planks * 12 +
+    gratings * gratingWeight +
+    toeboards * 2;
 
   const bom: PartsBom = {
     standards,

@@ -448,8 +448,9 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
       ))}
 
       {/* ---- Grating platforms per level (1 piece + 2 open for access) ---- */}
-      {/* Each bay is divided into 3 equal sections along Y.
-          Only 1 section (back, -Y side) gets a grating board.
+      {/* Gratings follow the WIDTH (Y direction, shorter span).
+          Each bay is divided into 3 sections along X (length).
+          Only 1 section (back, -X side) gets a grating board.
           The front 2 sections are OPEN for ladder/stair access. */}
       {include_gratings && rosetteZs.map((z, levelIdx) => (
         <group key={`grating-${levelIdx}`}>
@@ -460,26 +461,27 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
               const gratingThk = 8;
               const gratingZ = z - gratingThk / 2 - 2;
 
-              // Divide bay into 3 sections along Y
-              const sectionWidth = bay_length_y / 3;
-              const boardLen = bay_length_x * 0.94;
+              // Board follows WIDTH (Y direction, shorter)
+              const boardLen = bay_length_y * 0.94;
+              // Divide bay into 3 sections along X (length direction)
+              const sectionWidth = bay_length_x / 3;
 
-              // Only 1 grating board in the back (-Y) section
-              const boardY = bayCenterY - bay_length_y / 2 + sectionWidth / 2;
+              // Only 1 grating board in the back (-X) section
+              const boardX = bayCenterX - bay_length_x / 2 + sectionWidth / 2;
 
               return (
                 <mesh
                   key={`grating-L${levelIdx}-${i}-${j}`}
-                  position={[bayCenterX, boardY, gratingZ]}
+                  position={[boardX, bayCenterY, gratingZ]}
                   material={materials.grating}
                   receiveShadow
                   castShadow
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (onPartClick) onPartClick(`Grating L${levelIdx + 1}`, [bayCenterX, boardY, gratingZ]);
+                    if (onPartClick) onPartClick(`Grating L${levelIdx + 1}`, [boardX, bayCenterY, gratingZ]);
                   }}
                 >
-                  <boxGeometry args={[boardLen, sectionWidth * 0.9, gratingThk]} />
+                  <boxGeometry args={[sectionWidth * 0.9, boardLen, gratingThk]} />
                 </mesh>
               );
             })
