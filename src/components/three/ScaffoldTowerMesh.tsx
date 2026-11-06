@@ -547,6 +547,75 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
           </group>
         );
       })}
+
+      {/* ---- Handrails and middle rails on TOP level ---- */}
+      {/* EN 12811 requires: top guardrail at 1000mm above platform,
+          middle rail at 500mm above platform.
+          Rails on 3 sides (back, left, right) — front open for access. */}
+      {(() => {
+        const topZ = towerHeight; // top rosette level
+        const railH1 = topZ + 500; // middle rail: 500mm above platform
+        const railH2 = topZ + 1000; // top guardrail: 1000mm above platform
+        const railDia = 0.0; // will use tube radius
+        const railR = tubeR * 0.8; // slightly thinner than standards
+
+        return (
+          <group>
+            {/* Back side (along Y-) — 2 rails (middle + top) */}
+            {[railH1, railH2].map((rz, ri) => (
+              <mesh
+                key={`rail-back-${ri}`}
+                position={[0, -towerY / 2, rz]}
+                material={materials.standard}
+                castShadow
+              >
+                <cylinderGeometry args={[railR, railR, towerX, 16]} />
+                <meshStandardMaterial color="#8e9098" />
+              </mesh>
+            ))}
+            {/* Need to rotate back rail to be horizontal along X */}
+            {/* Right side (along X+) — 2 rails */}
+            {[railH1, railH2].map((rz, ri) => (
+              <mesh
+                key={`rail-right-${ri}`}
+                position={[towerX / 2, 0, rz]}
+                rotation={[0, 0, Math.PI / 2]}
+                material={materials.standard}
+                castShadow
+              >
+                <cylinderGeometry args={[railR, railR, towerY, 16]} />
+                <meshStandardMaterial color="#8e9098" />
+              </mesh>
+            ))}
+            {/* Left side (along X-) — 2 rails */}
+            {[railH1, railH2].map((rz, ri) => (
+              <mesh
+                key={`rail-left-${ri}`}
+                position={[-towerX / 2, 0, rz]}
+                rotation={[0, 0, Math.PI / 2]}
+                material={materials.standard}
+                castShadow
+              >
+                <cylinderGeometry args={[railR, railR, towerY, 16]} />
+                <meshStandardMaterial color="#8e9098" />
+              </mesh>
+            ))}
+            {/* Guardrail posts at the 4 corners (on top level only) */}
+            {standardPositions.map(([x, y], idx) => (
+              <mesh
+                key={`grpost-${idx}`}
+                rotation={[Math.PI / 2, 0, 0]}
+                position={[x, y, topZ + 500]}
+                material={materials.standard}
+                castShadow
+              >
+                <cylinderGeometry args={[railR, railR, 1000, 16]} />
+                <meshStandardMaterial color="#8e9098" />
+              </mesh>
+            ))}
+          </group>
+        );
+      })()}
     </group>
   );
 }

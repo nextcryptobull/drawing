@@ -223,30 +223,58 @@ export function assembleTower(
   // Toeboards: 4 sides per level (if enabled)
   const toeboards = config.include_toeboards ? 4 * numLifts : 0;
 
-  // Estimated weight — based on accurate industry-standard values
-  // Sources: ACE Scaffold catalog, EN 12811 specs, steel density 7.85 g/cm³
+  // ACCURATE INDUSTRY-STANDARD WEIGHTS
+  // Sources: ACE Scaffold catalog, wm-scaffold.com, SSP Global, EN 12811
   //
-  // Tube 48.3×3.2mm: 3.56 kg/m
-  // Rosette Ø122×10mm: 0.6 kg each
-  // Ledger (tube + 2 wedge heads): length × 3.56 + 1.0 kg
-  // Diagonal brace (30mm tube + 2 heads): length × 1.7 + 1.0 kg
-  // Base jack: 2.5 kg
-  // Steel grating: 30 kg/m² (each covers 1/3 of bay)
-  // Toeboard: 2 kg per piece
-  // Steel plank: 12 kg per piece
+  // Standards (per piece, includes rosettes + spigot):
+  //   0.5m=3.32kg, 1.0m=5.66kg, 1.5m=6.89kg, 2.0m=10.35kg, 2.5m=12.65kg, 3.0m=15.03kg
+  //   → formula: 3.56 kg/m tube + 0.6 kg/rosette + 0.5 kg spigot
+  //
+  // Ledgers (48.3×3.2 tube + 2 wedge heads):
+  //   1.09m=5.0kg, 1.57m=6.0kg, 2.07m=8.0kg, 2.57m=9.5kg, 3.07m=11.0kg
+  //   → formula: 3.56 kg/m + 1.0 kg (2 wedge heads)
+  //
+  // Steel planks (320mm wide, with hooks):
+  //   1.57m=15.60kg, 2.07m=19.36kg, 2.57m=23.13kg, 3.07m=26.89kg
+  //   → formula: ~8.5 kg/m + 2.3 kg (hooks)
+  //
+  // Diagonal braces (48.3×2.5 tube + 2 heads):
+  //   2.07×2.0m=~8.0kg, 2.57×2.0m=~9.97kg, 3.05×2.0m=~11.2kg
+  //   → formula: brace_length × 1.7 kg/m + 1.0 kg (2 heads)
+  //
+  // Base jacks:
+  //   Solid 38×600mm = 5.2 kg (ACE), 8.10 kg (SSP)
+  //   Hollow 38×600mm = 4.10 kg (SSP)
+  //   → use 5.2 kg for solid (most common)
+  //
+  // Caster wheel assembly = 4.5 kg (typical 200mm)
+  //
+  // Guardrail posts = 8.35 kg per 1m post (catalog)
+  //
+  // Toeboards = 2.0 kg per piece (estimate)
 
   const towerH = numLifts * liftHeight;
-  const standardWeight = (towerH / 1000) * 3.56 + numLifts * 0.6 + 0.5; // tube + rosettes + spigot
+  const standardWeight = (towerH / 1000) * 3.56 + numLifts * 0.6 + 0.5;
   const ledgerWeightX = (bayX.size / 1000) * 3.56 + 1.0;
   const ledgerWeightY = (bayY.size / 1000) * 3.56 + 1.0;
   const braceLength = Math.sqrt(
     Math.max(bayX.size, bayY.size) ** 2 + liftHeight ** 2
   );
   const braceWeight = (braceLength / 1000) * 1.7 + 1.0;
-  const gratingArea = ((bayX.size / 3) * bayY.size * 2) / 1_000_000; // m² (2/3 of bay)
-  const gratingWeight = gratingArea * 30; // 30 kg/m²
 
-  const baseWeight = config.base_type === "wheel" ? 4.5 : 2.5;
+  // Steel plank weight (320mm wide, follows bay_length_x)
+  // Formula: 8.5 kg/m + 2.3 kg hooks
+  const plankWeight = (bayX.size / 1000) * 8.5 + 2.3;
+
+  // Grating = steel plank (320mm wide, 1/3 of bay length each piece)
+  // 2 pieces per bay per level, each covers 1/3 of bay
+  const gratingPieceLength = (bayX.size / 3) / 1000; // meters
+  const gratingPieceWeight = gratingPieceLength * 8.5 + 2.3; // kg per piece
+
+  const baseWeight = config.base_type === "wheel" ? 4.5 : 5.2;
+  const guardrailWeight = 8.35; // 1m guardrail post
+  const guardrailCount = config.include_braces ? bayX.count * 4 : 0; // 4 posts per bay on top level
+  const toeboardWeight = 2.0;
 
   const estimatedWeight =
     standards * standardWeight +
@@ -254,9 +282,10 @@ export function assembleTower(
     ledgersYPerLevel * numLifts * ledgerWeightY +
     braces * braceWeight +
     baseJacks * baseWeight +
-    planks * 12 +
-    gratings * gratingWeight +
-    toeboards * 2;
+    planks * plankWeight +
+    gratings * gratingPieceWeight +
+    toeboards * toeboardWeight +
+    guardrailCount * guardrailWeight;
 
   const bom: PartsBom = {
     standards,

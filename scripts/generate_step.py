@@ -722,6 +722,77 @@ def build_tower(cfg: Dict[str, Any]) -> cq.Assembly:
             )
             # Note: North side (+Y) has NO toeboard — open for access
 
+    # Handrails and middle rails on TOP level
+    # EN 12811: top guardrail at 1000mm above platform, middle rail at 500mm
+    # Rails on 3 sides (back, left, right) — front open for access.
+    top_level_z = num_lifts * lift_h
+    rail_od = 38.0  # guardrail tube OD
+    rail_id = 38.0 - 2 * 2.5  # 2.5mm wall
+    rail_r_1 = top_level_z + 500.0   # middle rail
+    rail_r_2 = top_level_z + 1000.0  # top guardrail
+
+    for rail_z in [rail_r_1, rail_r_2]:
+        # Back side (along Y-) — horizontal along X
+        rail_back = (
+            cq.Workplane("XY")
+            .circle(rail_od / 2.0)
+            .circle(rail_id / 2.0)
+            .extrude(tower_x)
+            .translate((-tower_x / 2.0, -tower_y / 2.0, 0))
+        )
+        asm.add(
+            rail_back,
+            name=f"Guardrail_Back_{int(rail_z)}",
+            loc=cq.Location(cq.Vector(0, 0, rail_z)),
+            color=cq.Color(0.55, 0.55, 0.58),
+        )
+        # Right side (along X+) — horizontal along Y
+        rail_right = (
+            cq.Workplane("XY")
+            .circle(rail_od / 2.0)
+            .circle(rail_id / 2.0)
+            .extrude(tower_y)
+            .translate((0, -tower_y / 2.0, 0))
+        )
+        asm.add(
+            rail_right,
+            name=f"Guardrail_Right_{int(rail_z)}",
+            loc=cq.Location(cq.Vector(tower_x / 2.0, 0, rail_z)),
+            color=cq.Color(0.55, 0.55, 0.58),
+        )
+        # Left side (along X-) — horizontal along Y
+        rail_left = (
+            cq.Workplane("XY")
+            .circle(rail_od / 2.0)
+            .circle(rail_id / 2.0)
+            .extrude(tower_y)
+            .translate((0, -tower_y / 2.0, 0))
+        )
+        asm.add(
+            rail_left,
+            name=f"Guardrail_Left_{int(rail_z)}",
+            loc=cq.Location(cq.Vector(-tower_x / 2.0, 0, rail_z)),
+            color=cq.Color(0.55, 0.55, 0.58),
+        )
+
+    # Guardrail posts (vertical, 1m tall) at 4 corners on top level
+    gr_post = (
+        cq.Workplane("XY")
+        .circle(rail_od / 2.0)
+        .circle(rail_id / 2.0)
+        .extrude(1000.0)
+    )
+    for i in range(bays_x + 1):
+        for j in range(bays_y + 1):
+            x = i * bay_x - tower_x / 2.0
+            y = j * bay_y - tower_y / 2.0
+            asm.add(
+                gr_post,
+                name=f"GuardrailPost_{i}_{j}",
+                loc=cq.Location(cq.Vector(x, y, top_level_z)),
+                color=cq.Color(0.55, 0.55, 0.58),
+            )
+
     return asm
 
 
