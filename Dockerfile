@@ -1,7 +1,8 @@
 # =============================================================================
-# Scaffold Parts Configurator — Dockerfile (production)
+# Scaffold Parts Configurator — Dockerfile (production, Railway-optimized)
 # =============================================================================
-# Two-stage build: Node.js app + Python + cadquery
+# This Dockerfile is what Railway will use (Railpack/Nixpacks are ignored
+# when a Dockerfile is present). Forces Node.js + Python + cadquery.
 # =============================================================================
 
 # ---- Stage 1: Build the Next.js standalone bundle --------------------------
@@ -9,27 +10,26 @@ FROM node:22-slim AS builder
 
 WORKDIR /app
 
-# Install bun for faster dependency install
-RUN npm install -g bun 2>/dev/null || true
-
 # Copy package files first (better layer caching)
-COPY package.json bun.lock* package-lock.json* ./
+COPY package.json package-lock.json ./
 
-# Install Node dependencies
-RUN bun install 2>/dev/null || npm install --no-audit --no-fund
+# Install Node dependencies with npm (NOT bun — bun causes HTTP binding issues)
+RUN npm ci --no-audit --no-fund || npm install --no-audit --no-fund
 
 # Copy the rest of the source
 COPY . .
 
 # Build Next.js standalone bundle
-RUN bun run build 2>/dev/null || npm run build
+RUN npm run build
 
 # ---- Stage 2: Production image with Node + Python + cadquery --------------
-FROM python:3.12-slim AS runner
+FROM node:22-slim AS runner
 
-# Install system deps for cadquery (OCP needs OpenGL libs)
-# Note: python:3.12-slim already has Python + pip, no need to install separately
+# Install Python 3 + pip + system deps for cadquery (OCP needs OpenGL libs)
 RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        python3-venv \
         libgl1 \
         libglib2.0-0 \
         libxrender1 \
@@ -38,14 +38,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 22 in the Python image
-RUN apt-get update && apt-get install -y --no-install-recommends curl && \
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
-    apt-get install -y --no-install-recommends nodejs && \
-    rm -rf /var/lib/apt/lists/*
-
 # Install cadquery (heavy step, ~200MB)
-RUN pip install --no-cache-dir cadquery
+RUN pip3 install --no-cache-dir --break-system-packages cadquery 2>/dev/null || \
+    pip3 install --no-cache-dir cadquery 2>/dev/null
 
 # Verify cadquery works at build time (fail fast if broken)
 RUN python3 -c "import cadquery; print('cadquery', cadquery.__version__, 'OK')"
@@ -78,9 +73,10 @@ ENV TMP_DIR=/tmp/scaffold-step-gen
 
 EXPOSE 3000
 
-# Healthcheck using curl (lighter than node http)
+# Simple healthcheck using curl
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -sf http://localhost:3000/ || exit 1
 
-# Start the Next.js server
+# CRITICAL: Start with Node.js (NOT bun). bun causes HTTP binding issues
+# with Next.js standalone — process appears alive but doesn't respond.
 CMD ["node", "server.js"]
