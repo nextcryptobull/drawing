@@ -549,58 +549,57 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
       })}
 
       {/* ---- Handrails and middle rails on TOP level ---- */}
-      {/* EN 12811 requires: top guardrail at 1000mm above platform,
-          middle rail at 500mm above platform.
-          Rails on 3 sides (back, left, right) — front open for access. */}
+      {/* EN 12811: top guardrail at 1000mm, middle rail at 500mm above platform.
+          Rails positioned OUTSIDE the frame posts (beyond the standard line).
+          Rails on 3 sides (back, left, right) — front (+Y) open for access.
+          Guardrail posts extend from the top rosette upward 1000mm. */}
       {(() => {
-        const topZ = towerHeight; // top rosette level
-        const railH1 = topZ + 500; // middle rail: 500mm above platform
-        const railH2 = topZ + 1000; // top guardrail: 1000mm above platform
-        const railDia = 0.0; // will use tube radius
-        const railR = tubeR * 0.8; // slightly thinner than standards
+        const topZ = towerHeight;
+        const railH1 = topZ + 500; // middle rail
+        const railH2 = topZ + 1000; // top guardrail
+        const railR = tubeR * 0.8;
+        const offset = 100; // 100mm outside the standard line (outside frame)
 
         return (
           <group>
-            {/* Back side (along Y-) — 2 rails (middle + top) */}
+            {/* Back side (Y-) — 2 rails OUTSIDE the frame */}
             {[railH1, railH2].map((rz, ri) => (
               <mesh
                 key={`rail-back-${ri}`}
-                position={[0, -towerY / 2, rz]}
+                position={[0, -towerY / 2 - offset, rz]}
+                rotation={[0, 0, Math.PI / 2]}
                 material={materials.standard}
                 castShadow
               >
-                <cylinderGeometry args={[railR, railR, towerX, 16]} />
+                <cylinderGeometry args={[railR, railR, towerX + offset * 2, 16]} />
                 <meshStandardMaterial color="#8e9098" />
               </mesh>
             ))}
-            {/* Need to rotate back rail to be horizontal along X */}
-            {/* Right side (along X+) — 2 rails */}
+            {/* Right side (X+) — 2 rails OUTSIDE */}
             {[railH1, railH2].map((rz, ri) => (
               <mesh
                 key={`rail-right-${ri}`}
-                position={[towerX / 2, 0, rz]}
-                rotation={[0, 0, Math.PI / 2]}
+                position={[towerX / 2 + offset, 0, rz]}
                 material={materials.standard}
                 castShadow
               >
-                <cylinderGeometry args={[railR, railR, towerY, 16]} />
+                <cylinderGeometry args={[railR, railR, towerY + offset * 2, 16]} />
                 <meshStandardMaterial color="#8e9098" />
               </mesh>
             ))}
-            {/* Left side (along X-) — 2 rails */}
+            {/* Left side (X-) — 2 rails OUTSIDE */}
             {[railH1, railH2].map((rz, ri) => (
               <mesh
                 key={`rail-left-${ri}`}
-                position={[-towerX / 2, 0, rz]}
-                rotation={[0, 0, Math.PI / 2]}
+                position={[-towerX / 2 - offset, 0, rz]}
                 material={materials.standard}
                 castShadow
               >
-                <cylinderGeometry args={[railR, railR, towerY, 16]} />
+                <cylinderGeometry args={[railR, railR, towerY + offset * 2, 16]} />
                 <meshStandardMaterial color="#8e9098" />
               </mesh>
             ))}
-            {/* Guardrail posts at the 4 corners (on top level only) */}
+            {/* Guardrail posts at corners — extend 1000mm above top platform */}
             {standardPositions.map(([x, y], idx) => (
               <mesh
                 key={`grpost-${idx}`}
@@ -613,6 +612,39 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
                 <meshStandardMaterial color="#8e9098" />
               </mesh>
             ))}
+            {/* Trap door on top level — a hinged section in the grating
+                that can open for ladder access.
+                Rendered as a slightly raised, differently-colored board
+                on the access side of the top level. */}
+            <mesh
+              key="trapdoor"
+              position={[
+                // Position at the opening section of the TOP level
+                // (opposite side from the grating boards on that level)
+                (() => {
+                  const topLevelIdx = rosetteZs.length - 1;
+                  const levelNum = topLevelIdx + 1;
+                  const isOpenAtFront = levelNum % 2 === 1;
+                  const sectionWidth = bay_length_x / 3;
+                  const bayCenterX = (0 + 0.5) * bay_length_x - towerX / 2;
+                  // Place trap door at the OPEN section
+                  return isOpenAtFront
+                    ? bayCenterX + bay_length_x / 2 - sectionWidth / 2 // front section
+                    : bayCenterX - bay_length_x / 2 + sectionWidth / 2; // back section
+                })(),
+                (0 + 0.5) * bay_length_y - towerY / 2,
+                towerHeight - 4,
+              ]}
+              rotation={[0, 0, 0]}
+              castShadow
+            >
+              <boxGeometry args={[
+                (bay_length_x / 3) * 0.88,
+                bay_length_y * 0.88,
+                6,
+              ]} />
+              <meshStandardMaterial color="#d4a017" roughness={0.6} metalness={0.3} />
+            </mesh>
           </group>
         );
       })()}

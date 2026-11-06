@@ -723,59 +723,61 @@ def build_tower(cfg: Dict[str, Any]) -> cq.Assembly:
             # Note: North side (+Y) has NO toeboard — open for access
 
     # Handrails and middle rails on TOP level
-    # EN 12811: top guardrail at 1000mm above platform, middle rail at 500mm
-    # Rails on 3 sides (back, left, right) — front open for access.
+    # EN 12811: top guardrail at 1000mm, middle rail at 500mm above platform.
+    # Rails positioned OUTSIDE the frame posts (100mm beyond standard line).
+    # Rails on 3 sides (back, left, right) — front (+Y) open for access.
     top_level_z = num_lifts * lift_h
-    rail_od = 38.0  # guardrail tube OD
-    rail_id = 38.0 - 2 * 2.5  # 2.5mm wall
+    rail_od = 38.0
+    rail_id = 38.0 - 2 * 2.5
     rail_r_1 = top_level_z + 500.0   # middle rail
     rail_r_2 = top_level_z + 1000.0  # top guardrail
+    rail_offset = 100.0  # 100mm outside the standard line
 
     for rail_z in [rail_r_1, rail_r_2]:
-        # Back side (along Y-) — horizontal along X
+        # Back side (Y-) — horizontal along X, OUTSIDE the frame
         rail_back = (
             cq.Workplane("XY")
             .circle(rail_od / 2.0)
             .circle(rail_id / 2.0)
-            .extrude(tower_x)
-            .translate((-tower_x / 2.0, -tower_y / 2.0, 0))
+            .extrude(tower_x + rail_offset * 2)
+            .translate((-tower_x / 2.0 - rail_offset, 0, 0))
         )
         asm.add(
             rail_back,
             name=f"Guardrail_Back_{int(rail_z)}",
-            loc=cq.Location(cq.Vector(0, 0, rail_z)),
+            loc=cq.Location(cq.Vector(0, -tower_y / 2.0 - rail_offset, rail_z)),
             color=cq.Color(0.55, 0.55, 0.58),
         )
-        # Right side (along X+) — horizontal along Y
+        # Right side (X+) — horizontal along Y, OUTSIDE
         rail_right = (
             cq.Workplane("XY")
             .circle(rail_od / 2.0)
             .circle(rail_id / 2.0)
-            .extrude(tower_y)
-            .translate((0, -tower_y / 2.0, 0))
+            .extrude(tower_y + rail_offset * 2)
+            .translate((0, -tower_y / 2.0 - rail_offset, 0))
         )
         asm.add(
             rail_right,
             name=f"Guardrail_Right_{int(rail_z)}",
-            loc=cq.Location(cq.Vector(tower_x / 2.0, 0, rail_z)),
+            loc=cq.Location(cq.Vector(tower_x / 2.0 + rail_offset, 0, rail_z)),
             color=cq.Color(0.55, 0.55, 0.58),
         )
-        # Left side (along X-) — horizontal along Y
+        # Left side (X-) — horizontal along Y, OUTSIDE
         rail_left = (
             cq.Workplane("XY")
             .circle(rail_od / 2.0)
             .circle(rail_id / 2.0)
-            .extrude(tower_y)
-            .translate((0, -tower_y / 2.0, 0))
+            .extrude(tower_y + rail_offset * 2)
+            .translate((0, -tower_y / 2.0 - rail_offset, 0))
         )
         asm.add(
             rail_left,
             name=f"Guardrail_Left_{int(rail_z)}",
-            loc=cq.Location(cq.Vector(-tower_x / 2.0, 0, rail_z)),
+            loc=cq.Location(cq.Vector(-tower_x / 2.0 - rail_offset, 0, rail_z)),
             color=cq.Color(0.55, 0.55, 0.58),
         )
 
-    # Guardrail posts (vertical, 1m tall) at 4 corners on top level
+    # Guardrail posts (vertical, 1m tall) at corners on top level
     gr_post = (
         cq.Workplane("XY")
         .circle(rail_od / 2.0)
@@ -792,6 +794,31 @@ def build_tower(cfg: Dict[str, Any]) -> cq.Assembly:
                 loc=cq.Location(cq.Vector(x, y, top_level_z)),
                 color=cq.Color(0.55, 0.55, 0.58),
             )
+
+    # Trap door on top level — hinged section in the grating for ladder access
+    # Positioned at the OPEN section of the top level (staggered pattern)
+    trap_thk = 6.0
+    trap_z = top_level_z - trap_thk / 2.0 - 2.0
+    section_w = bay_x / 3.0
+    top_level_num = num_lifts
+    is_open_at_front = (top_level_num % 2 == 1)
+    bay_cx = (0 + 0.5) * bay_x - tower_x / 2.0
+    bay_cy = (0 + 0.5) * bay_y - tower_y / 2.0
+    # Place trap door at the OPEN section
+    if is_open_at_front:
+        trap_x = bay_cx + bay_x / 2.0 - section_w / 2.0  # front section
+    else:
+        trap_x = bay_cx - bay_x / 2.0 + section_w / 2.0  # back section
+    trap_door = (
+        cq.Workplane("XY")
+        .box(section_w * 0.88, bay_y * 0.88, trap_thk)
+    )
+    asm.add(
+        trap_door,
+        name="TrapDoor_Top",
+        loc=cq.Location(cq.Vector(trap_x, bay_cy, trap_z)),
+        color=cq.Color(0.83, 0.63, 0.09),  # yellow/gold to distinguish
+    )
 
     return asm
 
