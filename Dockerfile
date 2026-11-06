@@ -62,8 +62,9 @@ COPY scripts/ringlock_caster.py ./scripts/
 RUN mkdir -p /app/db /app/download /tmp/scaffold-step-gen
 
 # Production env vars
+# PORT and HOSTNAME are set by the platform (Render=10000, Railway=3000, etc.)
+# Next.js standalone reads PORT env var automatically.
 ENV NODE_ENV=production
-ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 ENV PYTHON_BIN=python3
 ENV PYTHONPATH=/app/scripts
@@ -71,12 +72,15 @@ ENV GENERATOR_PATH=/app/scripts/generate_step.py
 ENV WORK_DIR=/app/download
 ENV TMP_DIR=/tmp/scaffold-step-gen
 
-EXPOSE 3000
+# Expose both common ports (Render uses 10000, others use 3000).
+# The actual port is set at runtime via the PORT env var by the platform.
+EXPOSE 3000 10000
 
-# Simple healthcheck using curl
+# Healthcheck: uses $PORT so it works on any platform (Render, Railway, etc.)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -sf http://localhost:3000/ || exit 1
+    CMD curl -sf "http://localhost:${PORT:-3000}/" || exit 1
 
 # CRITICAL: Start with Node.js (NOT bun). bun causes HTTP binding issues
 # with Next.js standalone — process appears alive but doesn't respond.
+# Next.js standalone reads PORT env var to know which port to listen on.
 CMD ["node", "server.js"]
