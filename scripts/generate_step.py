@@ -461,8 +461,47 @@ def build_tower(cfg: Dict[str, Any]) -> cq.Assembly:
             y = j * bay_y - tower_y / 2.0
             std_count += 1
 
-            # Base jack (below ground)
-            if include_base_jacks:
+            # Base: jack or wheel (below ground)
+            base_type = str(cfg.get("base_type", "jack"))
+            if base_type == "wheel":
+                # Caster wheel assembly: wheel + fork + stem
+                wheel_od = 100.0  # 100mm wheel
+                wheel_w = 40.0
+                wheel = (
+                    cq.Workplane("XY")
+                    .circle(wheel_od / 2.0)
+                    .extrude(wheel_w)
+                )
+                asm.add(
+                    wheel,
+                    name=f"Wheel_{std_count}",
+                    loc=cq.Location(cq.Vector(x, y, -120)),
+                    color=cq.Color(0.10, 0.30, 0.85),  # blue
+                )
+                # Fork plate
+                fork = (
+                    cq.Workplane("XY")
+                    .box(70, 50, 6)
+                )
+                asm.add(
+                    fork,
+                    name=f"Fork_{std_count}",
+                    loc=cq.Location(cq.Vector(x, y, -65)),
+                    color=cq.Color(0.42, 0.44, 0.46),
+                )
+                # Stem
+                stem = (
+                    cq.Workplane("XY")
+                    .circle(15 / 2.0)
+                    .extrude(60)
+                )
+                asm.add(
+                    stem,
+                    name=f"Stem_{std_count}",
+                    loc=cq.Location(cq.Vector(x, y, -35)),
+                    color=cq.Color(0.42, 0.44, 0.46),
+                )
+            elif include_base_jacks:
                 asm.add(
                     base_jack,
                     name=f"BaseJack_{std_count}",
@@ -598,77 +637,80 @@ def build_tower(cfg: Dict[str, Any]) -> cq.Assembly:
                     color=cq.Color(0.55, 0.40, 0.25),
                 )
 
-    # Grating platforms per level (steel grid platforms workers stand on)
-    grating_thk = 5.0  # 5mm thick grating
-    for k in range(1, num_lifts + 1):
-        level_z = k * lift_h
-        grating_z = level_z - grating_thk / 2.0 - 5.0  # 5mm below rosette
-        for i in range(bays_x):
-            for j in range(bays_y):
-                x = (i + 0.5) * bay_x - tower_x / 2.0
-                y = (j + 0.5) * bay_y - tower_y / 2.0
-                grating = (
-                    cq.Workplane("XY")
-                    .box(bay_x * 0.94, bay_y * 0.94, grating_thk)
-                )
-                asm.add(
-                    grating,
-                    name=f"Grating_L{k}_{i}_{j}",
-                    loc=cq.Location(cq.Vector(x, y, grating_z)),
-                    color=cq.Color(0.35, 0.42, 0.48),
-                )
+    # Grating platforms per level — multiple boards with one side open for access
+    # Gratings are composed of multiple steel boards laid side by side.
+    # The +Y (front) side is left open for ladder/stair access.
+    include_gratings = bool(cfg.get("include_gratings", True))
+    if include_gratings:
+        grating_thk = 8.0  # 8mm thick boards
+        for k in range(1, num_lifts + 1):
+            level_z = k * lift_h
+            grating_z = level_z - grating_thk / 2.0 - 5.0  # below rosette
+            for i in range(bays_x):
+                for j in range(bays_y):
+                    bay_cx = i * bay_x - tower_x / 2.0
+                    bay_cy = j * bay_y - tower_y / 2.0
+                    # Number of boards: ~100mm spacing, leave 200mm open on +Y side
+                    board_count = max(3, int((bay_y - 200) / 100))
+                    board_width = (bay_y - 200) / board_count
+                    board_len = bay_x * 0.92
+                    for bi in range(board_count):
+                        board_y = bay_cy - bay_y / 2.0 + board_width / 2.0 + bi * board_width
+                        board = (
+                            cq.Workplane("XY")
+                            .box(board_len, board_width * 0.9, grating_thk)
+                        )
+                        asm.add(
+                            board,
+                            name=f"GratingBoard_L{k}_{i}_{j}_{bi}",
+                            loc=cq.Location(cq.Vector(bay_cx + bay_x / 2.0 - board_len / 2.0, board_y, grating_z)),
+                            color=cq.Color(0.35, 0.42, 0.48),
+                        )
 
     # Toeboards per level (yellow safety boards around platform perimeter)
-    toeboard_h = 100.0  # 100mm high (industry standard)
-    toeboard_thk = 10.0  # 10mm thick
-    for k in range(1, num_lifts + 1):
-        level_z = k * lift_h
-        grating_z = level_z - 5.0 - 5.0  # align with grating
-        toeboard_center_z = grating_z + toeboard_h / 2.0
-        # North side (along Y+)
-        tb_north = (
-            cq.Workplane("XY")
-            .box(tower_x, toeboard_thk, toeboard_h)
-        )
-        asm.add(
-            tb_north,
-            name=f"Toeboard_N_L{k}",
-            loc=cq.Location(cq.Vector(0, tower_y / 2 - toeboard_thk / 2, toeboard_center_z)),
-            color=cq.Color(0.83, 0.63, 0.09),  # yellow
-        )
-        # South side (along Y-)
-        tb_south = (
-            cq.Workplane("XY")
-            .box(tower_x, toeboard_thk, toeboard_h)
-        )
-        asm.add(
-            tb_south,
-            name=f"Toeboard_S_L{k}",
-            loc=cq.Location(cq.Vector(0, -tower_y / 2 + toeboard_thk / 2, toeboard_center_z)),
-            color=cq.Color(0.83, 0.63, 0.09),
-        )
-        # East side (along X+)
-        tb_east = (
-            cq.Workplane("XY")
-            .box(toeboard_thk, tower_y, toeboard_h)
-        )
-        asm.add(
-            tb_east,
-            name=f"Toeboard_E_L{k}",
-            loc=cq.Location(cq.Vector(tower_x / 2 - toeboard_thk / 2, 0, toeboard_center_z)),
-            color=cq.Color(0.83, 0.63, 0.09),
-        )
-        # West side (along X-)
-        tb_west = (
-            cq.Workplane("XY")
-            .box(toeboard_thk, tower_y, toeboard_h)
-        )
-        asm.add(
-            tb_west,
-            name=f"Toeboard_W_L{k}",
-            loc=cq.Location(cq.Vector(-tower_x / 2 + toeboard_thk / 2, 0, toeboard_center_z)),
-            color=cq.Color(0.83, 0.63, 0.09),
-        )
+    # The +Y (front/access) side has NO toeboard — open for ladder access.
+    include_toeboards = bool(cfg.get("include_toeboards", True))
+    if include_toeboards:
+        toeboard_h = 100.0  # 100mm high (industry standard)
+        toeboard_thk = 10.0  # 10mm thick
+        for k in range(1, num_lifts + 1):
+            level_z = k * lift_h
+            grating_z = level_z - 5.0 - 5.0  # align with grating
+            toeboard_center_z = grating_z + toeboard_h / 2.0
+            # South side (along Y-)
+            tb_south = (
+                cq.Workplane("XY")
+                .box(tower_x, toeboard_thk, toeboard_h)
+            )
+            asm.add(
+                tb_south,
+                name=f"Toeboard_S_L{k}",
+                loc=cq.Location(cq.Vector(0, -tower_y / 2 + toeboard_thk / 2, toeboard_center_z)),
+                color=cq.Color(0.83, 0.63, 0.09),
+            )
+            # East side (along X+)
+            tb_east = (
+                cq.Workplane("XY")
+                .box(toeboard_thk, tower_y, toeboard_h)
+            )
+            asm.add(
+                tb_east,
+                name=f"Toeboard_E_L{k}",
+                loc=cq.Location(cq.Vector(tower_x / 2 - toeboard_thk / 2, 0, toeboard_center_z)),
+                color=cq.Color(0.83, 0.63, 0.09),
+            )
+            # West side (along X-)
+            tb_west = (
+                cq.Workplane("XY")
+                .box(toeboard_thk, tower_y, toeboard_h)
+            )
+            asm.add(
+                tb_west,
+                name=f"Toeboard_W_L{k}",
+                loc=cq.Location(cq.Vector(-tower_x / 2 + toeboard_thk / 2, 0, toeboard_center_z)),
+                color=cq.Color(0.83, 0.63, 0.09),
+            )
+            # Note: North side (+Y) has NO toeboard — open for access
 
     return asm
 

@@ -43,7 +43,15 @@ export function ScaffoldTowerMesh({ config }: { config: TowerConfig }) {
     base_jack_length,
     include_planks,
     plank_thickness,
-  } = config;
+    // New fields with defaults for backward compat
+    base_type = "jack",
+    include_gratings = true,
+    include_toeboards = true,
+  } = config as TowerConfig & {
+    base_type?: "jack" | "wheel";
+    include_gratings?: boolean;
+    include_toeboards?: boolean;
+  };
 
   const materials = useMemo(
     () => ({
@@ -71,6 +79,16 @@ export function ScaffoldTowerMesh({ config }: { config: TowerConfig }) {
         color: "#3a3c42",
         roughness: 0.7,
         metalness: 0.6,
+      }),
+      wheel: new THREE.MeshStandardMaterial({
+        color: "#1a4dd8",
+        roughness: 0.6,
+        metalness: 0.3,
+      }),
+      wheelFork: new THREE.MeshStandardMaterial({
+        color: "#6a6c74",
+        roughness: 0.5,
+        metalness: 0.7,
       }),
       spigot: new THREE.MeshStandardMaterial({
         color: "#56585e",
@@ -322,8 +340,23 @@ export function ScaffoldTowerMesh({ config }: { config: TowerConfig }) {
             <cylinderGeometry args={[spigotR, spigotR, spigot_length, 24]} />
           </mesh>
 
-          {/* Base jack (below ground line) */}
-          {include_base_jacks ? (
+          {/* Base: jack or wheel (below ground line) */}
+          {base_type === "wheel" ? (
+            <group position={[0, 0, -120]}>
+              {/* Caster wheel (blue, axis along Y) */}
+              <mesh material={materials.wheel} castShadow>
+                <cylinderGeometry args={[50, 50, 40, 32]} />
+              </mesh>
+              {/* Fork plate (steel) */}
+              <mesh position={[0, 0, 55]} material={materials.wheelFork} castShadow>
+                <boxGeometry args={[70, 50, 6]} />
+              </mesh>
+              {/* Stem connecting fork to standard */}
+              <mesh position={[0, 0, 85]} material={materials.wheelFork} castShadow>
+                <cylinderGeometry args={[15, 15, 60, 16]} />
+              </mesh>
+            </group>
+          ) : include_base_jacks ? (
             <mesh
               rotation={verticalRotation}
               position={[0, 0, -base_jack_length / 2]}
@@ -404,34 +437,40 @@ export function ScaffoldTowerMesh({ config }: { config: TowerConfig }) {
         </mesh>
       ))}
 
-      {/* ---- Grating platforms per level ---- */}
-      {/* A grating is a steel grid platform that workers stand on.
-          We render it as a thin box with a slightly transparent material
-          so you can see it's a platform but it doesn't block the view. */}
-      {rosetteZs.map((z, levelIdx) => (
+      {/* ---- Grating platforms per level (multiple boards with one side open) ---- */}
+      {/* Gratings are composed of multiple steel boards (planks) laid side by side.
+          One side of the platform is left open (no boards) for ladder/stair access.
+          The open side is on the +Y face (front side of the tower). */}
+      {include_gratings && rosetteZs.map((z, levelIdx) => (
         <group key={`grating-${levelIdx}`}>
           {Array.from({ length: bays_x }).map((_, i) =>
             Array.from({ length: bays_y }).map((_, j) => {
-              const cx = (i + 0.5) * bay_length_x - towerX / 2;
-              const cy = (j + 0.5) * bay_length_y - towerY / 2;
-              const gratingThk = 5; // 5mm thick grating
-              const gratingZ = z - gratingThk / 2 - 5; // 5mm below the rosette
-              return (
-                <mesh
-                  key={`grating-L${levelIdx}-${i}-${j}`}
-                  position={[cx, cy, gratingZ]}
-                  material={materials.grating}
-                  receiveShadow
-                >
-                  <boxGeometry
-                    args={[
-                      bay_length_x * 0.94,
-                      bay_length_y * 0.94,
-                      gratingThk,
-                    ]}
-                  />
-                </mesh>
-              );
+              const bayCx = i * bay_length_x - towerX / 2;
+              const bayCy = j * bay_length_y - towerY / 2;
+              const gratingThk = 8; // 8mm thick boards
+              const gratingZ = z - gratingThk / 2 - 5;
+
+              // Number of boards: spacing ~100mm, leaving last 200mm open for access
+              const boardCount = Math.max(3, Math.floor((bay_length_y - 200) / 100));
+              const boardWidth = (bay_length_y - 200) / boardCount;
+              const boardLen = bay_length_x * 0.92;
+
+              return Array.from({ length: boardCount }).map((_, bi) => {
+                // Boards laid along X, positioned across Y (starting from -Y side)
+                // Leave the +Y side (front, access side) open
+                const boardY = bayCy - bay_length_y / 2 + boardWidth / 2 + bi * boardWidth;
+                return (
+                  <mesh
+                    key={`grating-L${levelIdx}-${i}-${j}-${bi}`}
+                    position={[bayCx + bay_length_x / 2 - boardLen / 2, boardY, gratingZ]}
+                    material={materials.grating}
+                    receiveShadow
+                    castShadow
+                  >
+                    <boxGeometry args={[boardLen, boardWidth * 0.9, gratingThk]} />
+                  </mesh>
+                );
+              });
             })
           )}
         </group>
@@ -440,22 +479,15 @@ export function ScaffoldTowerMesh({ config }: { config: TowerConfig }) {
       {/* ---- Toeboards per level ---- */}
       {/* Toeboards are low vertical boards around the platform edge to prevent
           tools/materials from falling off. We render them as thin vertical
-          boxes around the perimeter of each platform level. */}
-      {rosetteZs.map((z, levelIdx) => {
+          boxes around the perimeter of each platform level.
+          Note: the access side (+Y front) has no toeboard (for ladder access). */}
+      {include_toeboards && rosetteZs.map((z, levelIdx) => {
         const toeboardH = 100; // 100mm high (industry standard)
         const toeboardThk = 10; // 10mm thick
         const gratingZ = z - 5 - 5; // align with grating level
         return (
           <group key={`toeboard-${levelIdx}`}>
-            {/* North side (along Y+) */}
-            <mesh
-              position={[0, towerY / 2 - toeboardThk / 2, gratingZ + toeboardH / 2]}
-              material={materials.toeboard}
-              castShadow
-            >
-              <boxGeometry args={[towerX, toeboardThk, toeboardH]} />
-            </mesh>
-            {/* South side (along Y-) */}
+            {/* South side (along Y-) — back */}
             <mesh
               position={[0, -towerY / 2 + toeboardThk / 2, gratingZ + toeboardH / 2]}
               material={materials.toeboard}
@@ -463,7 +495,7 @@ export function ScaffoldTowerMesh({ config }: { config: TowerConfig }) {
             >
               <boxGeometry args={[towerX, toeboardThk, toeboardH]} />
             </mesh>
-            {/* East side (along X+) */}
+            {/* East side (along X+) — right */}
             <mesh
               position={[towerX / 2 - toeboardThk / 2, 0, gratingZ + toeboardH / 2]}
               material={materials.toeboard}
@@ -471,7 +503,7 @@ export function ScaffoldTowerMesh({ config }: { config: TowerConfig }) {
             >
               <boxGeometry args={[toeboardThk, towerY, toeboardH]} />
             </mesh>
-            {/* West side (along X-) */}
+            {/* West side (along X-) — left */}
             <mesh
               position={[-towerX / 2 + toeboardThk / 2, 0, gratingZ + toeboardH / 2]}
               material={materials.toeboard}
@@ -479,6 +511,7 @@ export function ScaffoldTowerMesh({ config }: { config: TowerConfig }) {
             >
               <boxGeometry args={[toeboardThk, towerY, toeboardH]} />
             </mesh>
+            {/* Note: North side (+Y front) has NO toeboard — open for access */}
           </group>
         );
       })}
