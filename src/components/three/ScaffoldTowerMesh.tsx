@@ -520,19 +520,11 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
         </mesh>
       ))}
 
-      {/* ---- Grating platforms per level (2 pieces + 1 open for access) ---- */}
-      {/* Working platform = 2/3 of bay (LARGER than access).
-          Access opening = 1/3 of bay (SMALLER than working platform).
-          
-          Gratings follow the WIDTH (Y direction, shorter span).
-          Bay is divided into 3 sections along X (length).
-          
-          Opening position STAGGERS between levels:
-          - Odd levels (1,3,5...): opening on the +X (right/front) side
-          - Even levels (2,4,6...): opening on the -X (left/back) side
-          
-          This prevents fall-through: the top level's opening is closed
-          by the level below it (staggered pattern). */}
+      {/* ---- Grating platforms per level ---- */}
+      {/* MULTI-BAY RULE:
+          - Only ONE bay (bay i=0, the access bay) has the staggered opening (2/3 filled + 1/3 open)
+          - ALL other bays (i=1,2,...) are FULLY filled with gratings (3/3 coverage)
+          - The access bay opening staggers between levels (prevents fall-through) */}
       {include_gratings && rosetteZs.map((z, levelIdx) => (
         <group key={`grating-${levelIdx}`}>
           {Array.from({ length: bays_x }).map((_, i) =>
@@ -547,19 +539,23 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
               // Divide bay into 3 sections along X (length direction)
               const sectionWidth = bay_length_x / 3;
 
-              // Determine which sections get gratings (2 pieces)
-              // Odd levels (0-indexed even): cover sections 0 and 1 (back 2/3), open section 2 (front +X)
-              // Even levels (0-indexed odd): cover sections 1 and 2 (front 2/3), open section 0 (back -X)
-              const levelNum = levelIdx + 1; // 1-indexed
-              const isOpenAtFront = levelNum % 2 === 1; // odd levels open at front
-              
               // Section X positions (0=back, 1=middle, 2=front)
               const sectionX0 = bayCenterX - bay_length_x / 2 + sectionWidth / 2;
               const sectionX1 = bayCenterX - bay_length_x / 2 + sectionWidth + sectionWidth / 2;
               const sectionX2 = bayCenterX - bay_length_x / 2 + 2 * sectionWidth + sectionWidth / 2;
 
-              // Determine which 2 sections get boards
-              const boardSections = isOpenAtFront ? [sectionX0, sectionX1] : [sectionX1, sectionX2];
+              // MULTI-BAY RULE: Only bay i=0 (access bay) has the staggered opening.
+              // All other bays (i>0) are fully filled with 3 grating sections.
+              let boardSections: number[];
+              if (i === 0) {
+                // Access bay: 2 sections filled + 1 open (staggered)
+                const levelNum = levelIdx + 1;
+                const isOpenAtFront = levelNum % 2 === 1;
+                boardSections = isOpenAtFront ? [sectionX0, sectionX1] : [sectionX1, sectionX2];
+              } else {
+                // Non-access bays: fully filled (all 3 sections)
+                boardSections = [sectionX0, sectionX1, sectionX2];
+              }
 
               return boardSections.map((boardX, bi) => (
                 <mesh
@@ -570,7 +566,7 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
                   castShadow
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (onPartClick) onPartClick(`Grating L${levelIdx + 1}`, [boardX, bayCenterY, gratingZ]);
+                    if (onPartClick) onPartClick(`Grating L${levelIdx + 1} Bay ${i}`, [boardX, bayCenterY, gratingZ]);
                   }}
                 >
                   <boxGeometry args={[sectionWidth * 0.9, boardLen, gratingThk]} />

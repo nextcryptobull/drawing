@@ -299,8 +299,10 @@ export function assembleTower(
   // Planks
   const planks = bayX.count * bayY.count;
 
-  // Gratings: 2 per bay per level
-  const gratings = config.include_gratings ? bayX.count * bayY.count * numLifts * 2 : 0;
+  // Gratings: access bay (i=0) = 2 per level, other bays = 3 per level (fully filled)
+  const accessBayGratings = config.include_gratings ? bayY.count * numLifts * 2 : 0;
+  const otherBayGratings = config.include_gratings ? Math.max(0, bayX.count - 1) * bayY.count * numLifts * 3 : 0;
+  const gratings = accessBayGratings + otherBayGratings;
 
   // Toeboards: 3 sides per level
   const toeboards = config.include_toeboards ? 3 * numLifts : 0;

@@ -701,15 +701,10 @@ def build_tower(cfg: Dict[str, Any]) -> cq.Assembly:
                     color=cq.Color(0.55, 0.40, 0.25),
                 )
 
-    # Grating platforms per level — 2 pieces + 1 open (working platform > access)
-    # Working platform = 2/3 of bay (LARGER than access opening = 1/3).
-    # Gratings follow WIDTH (Y direction, shorter span).
-    # Bay divided into 3 sections along X (length).
-    #
-    # Opening STAGGERS between levels:
-    # - Odd levels (1,3,5...): opening on +X (front) side, boards on sections 0,1
-    # - Even levels (2,4,6...): opening on -X (back) side, boards on sections 1,2
-    # This prevents fall-through: each opening is covered by the level below.
+    # MULTI-BAY RULE:
+    # - Only ONE bay (bay i=0, the access bay) has the staggered opening (2/3 + 1/3 open)
+    # - ALL other bays (i=1,2,...) are FULLY filled with gratings (3/3 coverage)
+    # - The access bay opening staggers between levels (prevents fall-through)
     include_gratings = bool(cfg.get("include_gratings", True))
     if include_gratings:
         grating_thk = 8.0
@@ -723,12 +718,19 @@ def build_tower(cfg: Dict[str, Any]) -> cq.Assembly:
                     bay_center_y = (j + 0.5) * bay_y - tower_y / 2.0
                     board_len_y = bay_y * 0.94
                     section_width = bay_x / 3.0
-                    # Section X positions (0=back, 1=middle, 2=front)
+                    # Section X positions
                     section_x0 = bay_center_x - bay_x / 2.0 + section_width / 2.0
                     section_x1 = bay_center_x - bay_x / 2.0 + section_width + section_width / 2.0
                     section_x2 = bay_center_x - bay_x / 2.0 + 2.0 * section_width + section_width / 2.0
-                    # Which 2 sections get boards
-                    board_sections = [section_x0, section_x1] if is_open_at_front else [section_x1, section_x2]
+
+                    # MULTI-BAY RULE: bay i=0 has staggered opening, others are full
+                    if i == 0:
+                        # Access bay: 2 sections + 1 open (staggered)
+                        board_sections = [section_x0, section_x1] if is_open_at_front else [section_x1, section_x2]
+                    else:
+                        # Non-access bays: fully filled (all 3 sections)
+                        board_sections = [section_x0, section_x1, section_x2]
+
                     for bi, board_x in enumerate(board_sections):
                         board = (
                             cq.Workplane("XY")
