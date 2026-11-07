@@ -170,6 +170,48 @@ export function TowerViewer({ config }: { config: TowerConfig | null }) {
         </Button>
       </div>
 
+      {/* Quick-zoom buttons — bottom-left */}
+      {debounced && (
+        <div className="absolute bottom-3 left-3 z-10 flex flex-wrap gap-1.5">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setFocusTarget({ name: "Base / Wheels", pos: [0, 0, -300] })}
+            className="bg-black/60 text-white/90 hover:bg-black/80"
+          >
+            <Focus className="mr-1 size-3" />
+            Base
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setFocusTarget({ name: "Rosette", pos: [0, 0, debounced.lift_height] })}
+            className="bg-black/60 text-white/90 hover:bg-black/80"
+          >
+            <Focus className="mr-1 size-3" />
+            Rosette
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setFocusTarget({ name: "Trap door", pos: [0, 0, debounced.num_lifts * debounced.lift_height] })}
+            className="bg-black/60 text-white/90 hover:bg-black/80"
+          >
+            <Focus className="mr-1 size-3" />
+            Trap Door
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setFocusTarget({ name: "Handrails", pos: [0, 0, debounced.num_lifts * debounced.lift_height + 750] })}
+            className="bg-black/60 text-white/90 hover:bg-black/80"
+          >
+            <Focus className="mr-1 size-3" />
+            Handrails
+          </Button>
+        </div>
+      )}
+
       <Canvas
         shadows
         camera={{ position: defaultCamPos, fov: 45, near: 0.1, far: 5000 }}

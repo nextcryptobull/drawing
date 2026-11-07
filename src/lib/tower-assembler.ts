@@ -47,6 +47,17 @@ export interface PartsBom {
   toeboards: number;
   total_parts: number;
   estimated_weight_kg: number;
+  /** Detailed BOM: each part broken down by standard size */
+  details: BomDetailItem[];
+}
+
+export interface BomDetailItem {
+  part_type: string;
+  description: string;
+  size: string;
+  quantity: number;
+  unit_weight_kg: number;
+  total_weight_kg: number;
 }
 
 export interface AssemblyResult {
@@ -68,6 +79,77 @@ export interface AssemblyResult {
 const STANDARD_BAY_LENGTHS = [1090, 1570, 2070, 2570, 3070];
 const STANDARD_BAY_WIDTHS = [1090, 1400, 1520, 1570];
 const STANDARD_LIFT_HEIGHTS = [1000, 1500, 2000, 2500];
+
+/**
+ * Standard ringlock standard (vertical) lengths (mm).
+ * A tower taller than 3m must be built from multiple stacked standards.
+ * Max single standard = 3m (per ACE Scaffold catalog).
+ */
+const STANDARD_LENGTHS = [500, 1000, 1500, 2000, 2500, 3000];
+
+/**
+ * Standard ringlock standard weights (kg) — from ACE Scaffold catalog.
+ */
+const STANDARD_WEIGHTS: Record<number, number> = {
+  500: 3.32,
+  1000: 5.66,
+  1500: 6.89,
+  2000: 10.35,
+  2500: 12.65,
+  3000: 15.03,
+};
+
+/**
+ * Standard ringlock ledger weights (kg) — from ACE/wm-scaffold catalog.
+ */
+const LEDGER_WEIGHTS: Record<number, number> = {
+  1090: 5.00,
+  1400: 6.00,
+  1520: 6.30,
+  1570: 6.50,
+  2070: 8.00,
+  2570: 9.50,
+  3070: 11.00,
+};
+
+/**
+ * Standard steel plank weights (kg, 320mm wide) — from wm-scaffold catalog.
+ */
+const PLANK_WEIGHTS: Record<number, number> = {
+  1090: 11.50,
+  1570: 15.60,
+  2070: 19.36,
+  2570: 23.13,
+  3070: 26.89,
+};
+
+/**
+ * Split a total height into standard ringlock standard lengths.
+ * E.g. 8m → 3m + 3m + 2m (not one 8m bar, which doesn't exist).
+ * Uses the largest available standard sizes first (greedy approach).
+ */
+function splitIntoStandards(totalHeight: number): { length: number; weight: number }[] {
+  const result: { length: number; weight: number }[] = [];
+  let remaining = totalHeight;
+
+  // Greedy: use largest standards first
+  const sortedLengths = [...STANDARD_LENGTHS].sort((a, b) => b - a);
+
+  for (const len of sortedLengths) {
+    while (remaining >= len) {
+      result.push({ length: len, weight: STANDARD_WEIGHTS[len] });
+      remaining -= len;
+    }
+  }
+
+  // If there's a remainder, pick the smallest standard that covers it
+  if (remaining > 0) {
+    const closest = STANDARD_LENGTHS.find(l => l >= remaining) ?? STANDARD_LENGTHS[0];
+    result.push({ length: closest, weight: STANDARD_WEIGHTS[closest] });
+  }
+
+  return result;
+}
 
 /**
  * Parse a dimension string like "2.5x2x6m" or "2570x2000x6000mm" or "2.5 2 6"
@@ -197,101 +279,196 @@ export function assembleTower(
     );
   }
 
-  // Calculate BOM
-  const standards = (bayX.count + 1) * (bayY.count + 1);
+  // Calculate BOM — using STANDARD ringlock part sizes
+  const numStandards = (bayX.count + 1) * (bayY.count + 1);
   const rosettesPerStandard = numLifts;
-  const rosettes = standards * rosettesPerStandard;
+  const rosettes = numStandards * rosettesPerStandard;
 
-  // Ledgers: 2 per bay per level (one on each side), plus perimeter
-  const ledgersXPerLevel = (bayX.count) * (bayY.count + 1); // along X
-  const ledgersYPerLevel = (bayX.count + 1) * (bayY.count); // along Y
+  // Ledgers
+  const ledgersXPerLevel = (bayX.count) * (bayY.count + 1);
+  const ledgersYPerLevel = (bayX.count + 1) * (bayY.count);
   const ledgers = (ledgersXPerLevel + ledgersYPerLevel) * numLifts;
 
-  // Braces: ONE diagonal per perimeter bay face per level
+  // Braces
   const perimeterFaces = 2 * (bayX.count + bayY.count);
   const braces = config.include_braces ? perimeterFaces * numLifts : 0;
 
-  // Base jacks or wheels: one per standard
-  const baseJacks = standards;
+  // Base jacks or wheels
+  const baseJacks = numStandards;
 
-  // Planks: one per bay (top level only)
+  // Planks
   const planks = bayX.count * bayY.count;
 
-  // Gratings: 2 per bay per level (2 pieces + 1 open for access)
+  // Gratings: 2 per bay per level
   const gratings = config.include_gratings ? bayX.count * bayY.count * numLifts * 2 : 0;
 
-  // Toeboards: 4 sides per level (if enabled)
-  const toeboards = config.include_toeboards ? 4 * numLifts : 0;
+  // Toeboards: 3 sides per level
+  const toeboards = config.include_toeboards ? 3 * numLifts : 0;
 
-  // ACCURATE INDUSTRY-STANDARD WEIGHTS (verified against manufacturer catalogs)
-  // Sources: ACE Scaffold, wm-scaffold.com, SSP Global, gzshuangma, EN 12811
-  //
-  // ┌─────────────────────────────────────────────────────────────────────┐
-  // │ PART                 │ SIZE        │ CATALOG  │ FORMULA             │
-  // ├──────────────────────┼─────────────┼──────────┼─────────────────────┤
-  // │ Standard (vertical)  │ 48.3×3.2    │ per ACE  │ 3.56 kg/m + 0.6/rosette + 0.5 spigot │
-  // │   0.5m               │             │ 3.32 kg  │ 3.28 kg (close)     │
-  // │   1.0m               │             │ 5.66 kg  │ 5.26 kg             │
-  // │   2.0m               │             │ 10.35 kg │ 10.02 kg            │
-  // │   3.0m               │             │ 15.03 kg │ 14.78 kg            │
-  // │ Ledger (horizontal)  │ 48.3×3.2    │ per ACE  │ 3.56 kg/m + 1.0 (heads) │
-  // │   1.09m              │             │ 5.00 kg  │ 4.88 kg             │
-  // │   2.07m              │             │ 8.00 kg  │ 8.37 kg             │
-  // │   2.44m (8ft)        │             │ 9.90 kg  │ 9.69 kg ✓           │
-  // │ Steel plank (320mm)  │ 320mm wide  │ per wm   │ 8.5 kg/m + 2.3 hooks │
-  // │   1.57m              │             │ 15.60 kg │ 15.64 kg ✓          │
-  // │   2.07m              │             │ 19.36 kg │ 19.89 kg            │
-  // │   2.57m              │             │ 23.13 kg │ 24.14 kg            │
-  // │   3.07m              │             │ 26.89 kg │ 28.39 kg            │
-  // │ Diagonal brace       │ 48.3×2.5    │ per gzs  │ 2.75 kg/m + 1.0 (heads) │
-  // │   2.07×2.0m          │             │ ~8.0 kg  │ 7.91 kg ✓          │
-  // │   3.05×2.0m          │             │ ~11.2 kg │ 11.03 kg ✓         │
-  // │ Base jack (solid)    │ 38×600      │ per ACE  │ 5.2 kg (fixed)     │
-  // │ Base jack (hollow)   │ 38×600      │ per SSP  │ 4.1 kg (fixed)     │
-  // │ Caster wheel        │ 200mm       │ typical  │ 4.5 kg (fixed)     │
-  // │ Guardrail post (1m)  │ 38×2.5      │ catalog  │ 8.35 kg (fixed)    │
-  // │ Toeboard            │ per piece   │ estimate │ 2.0 kg (fixed)     │
-  // └─────────────────────────────────────────────────────────────────────┘
+  // ─── BUILD DETAILED BOM WITH STANDARD CATALOG WEIGHTS ───
+  const details: BomDetailItem[] = [];
+  let totalWeight = 0;
 
-  const towerH = numLifts * liftHeight;
-  const standardWeight = (towerH / 1000) * 3.56 + numLifts * 0.6 + 0.5;
-  const ledgerWeightX = (bayX.size / 1000) * 3.56 + 1.0;
-  const ledgerWeightY = (bayY.size / 1000) * 3.56 + 1.0;
-  const braceLength = Math.sqrt(
-    Math.max(bayX.size, bayY.size) ** 2 + liftHeight ** 2
-  );
-  // Brace tube 48.3×2.5 = 2.75 kg/m (steel density × cross-section)
-  // + 1.0 kg for 2 wedge heads
-  const braceWeight = (braceLength / 1000) * 2.75 + 1.0;
+  // STANDARDS: split tower height into standard lengths (max 3m each)
+  const towerHeightTotal = numLifts * liftHeight;
+  const standardSegments = splitIntoStandards(towerHeightTotal);
+  // Group by length
+  const standardGroups: Record<number, number> = {};
+  for (const seg of standardSegments) {
+    standardGroups[seg.length] = (standardGroups[seg.length] ?? 0) + 1;
+  }
+  for (const [len, count] of Object.entries(standardGroups)) {
+    const lenNum = parseInt(len);
+    const qty = count * numStandards;
+    const unitW = STANDARD_WEIGHTS[lenNum] ?? ((lenNum / 1000) * 3.56 + 0.6 + 0.5);
+    const totalW = qty * unitW;
+    totalWeight += totalW;
+    details.push({
+      part_type: "Standard",
+      description: `Ringlock standard ${lenNum / 1000}m (48.3×3.2)`,
+      size: `${lenNum}mm`,
+      quantity: qty,
+      unit_weight_kg: Math.round(unitW * 100) / 100,
+      total_weight_kg: Math.round(totalW * 100) / 100,
+    });
+  }
 
-  // Steel plank weight (320mm wide, with hooks)
-  // Catalog verified: 320×1570=15.60kg, 320×3070=26.89kg
-  // Formula: 8.5 kg/m + 2.3 kg hooks (close fit for shorter planks)
-  // For longer planks, use 8.0 kg/m + 3.0 kg (better fit for 3m+)
-  const plankWeight = (bayX.size / 1000) * 8.5 + 2.3;
+  // LEDGERS along X
+  const ledgerXWeight = LEDGER_WEIGHTS[bayX.size] ?? ((bayX.size / 1000) * 3.56 + 1.0);
+  const ledgerXQty = ledgersXPerLevel * numLifts;
+  {
+    const totalW = ledgerXQty * ledgerXWeight;
+    totalWeight += totalW;
+    details.push({
+      part_type: "Ledger",
+      description: `Ledger ${bayX.size}mm (48.3×3.2)`,
+      size: `${bayX.size}mm`,
+      quantity: ledgerXQty,
+      unit_weight_kg: Math.round(ledgerXWeight * 100) / 100,
+      total_weight_kg: Math.round(totalW * 100) / 100,
+    });
+  }
 
-  // Grating = steel plank (320mm wide, 1/3 of bay length each piece)
-  const gratingPieceLength = (bayX.size / 3) / 1000;
-  const gratingPieceWeight = gratingPieceLength * 8.5 + 2.3;
+  // LEDGERS along Y
+  const ledgerYWeight = LEDGER_WEIGHTS[bayY.size] ?? ((bayY.size / 1000) * 3.56 + 1.0);
+  const ledgerYQty = ledgersYPerLevel * numLifts;
+  {
+    const totalW = ledgerYQty * ledgerYWeight;
+    totalWeight += totalW;
+    details.push({
+      part_type: "Ledger",
+      description: `Ledger ${bayY.size}mm (48.3×3.2)`,
+      size: `${bayY.size}mm`,
+      quantity: ledgerYQty,
+      unit_weight_kg: Math.round(ledgerYWeight * 100) / 100,
+      total_weight_kg: Math.round(totalW * 100) / 100,
+    });
+  }
 
-  const baseWeight = config.base_type === "wheel" ? 4.5 : 5.2;
-  const guardrailWeight = 8.35;
-  const guardrailCount = config.include_braces ? bayX.count * 4 : 0;
-  const toeboardWeight = 2.0;
+  // DIAGONAL BRACES
+  if (braces > 0) {
+    const braceLengthMm = Math.sqrt(
+      Math.max(bayX.size, bayY.size) ** 2 + liftHeight ** 2
+    );
+    const braceW = (braceLengthMm / 1000) * 2.75 + 1.0;
+    const totalW = braces * braceW;
+    totalWeight += totalW;
+    details.push({
+      part_type: "Diagonal brace",
+      description: `Diagonal brace ${Math.round(braceLengthMm)}mm (48.3×2.5)`,
+      size: `${Math.round(braceLengthMm)}mm`,
+      quantity: braces,
+      unit_weight_kg: Math.round(braceW * 100) / 100,
+      total_weight_kg: Math.round(totalW * 100) / 100,
+    });
+  }
 
-  const estimatedWeight =
-    standards * standardWeight +
-    ledgersXPerLevel * numLifts * ledgerWeightX +
-    ledgersYPerLevel * numLifts * ledgerWeightY +
-    braces * braceWeight +
-    baseJacks * baseWeight +
-    planks * plankWeight +
-    gratings * gratingPieceWeight +
-    toeboards * toeboardWeight +
-    guardrailCount * guardrailWeight;
+  // BASE JACKS / WHEELS
+  {
+    const unitW = config.base_type === "wheel" ? 4.5 : 5.2;
+    const desc = config.base_type === "wheel" ? "Caster wheel 200mm" : "Base jack 38×600mm (solid)";
+    const totalW = baseJacks * unitW;
+    totalWeight += totalW;
+    details.push({
+      part_type: config.base_type === "wheel" ? "Caster wheel" : "Base jack",
+      description: desc,
+      size: config.base_type === "wheel" ? "200mm" : "38×600mm",
+      quantity: baseJacks,
+      unit_weight_kg: unitW,
+      total_weight_kg: Math.round(totalW * 100) / 100,
+    });
+  }
+
+  // ROSETTES
+  {
+    const unitW = 0.6;
+    const totalW = rosettes * unitW;
+    totalWeight += totalW;
+    details.push({
+      part_type: "Rosette",
+      description: "Rosette Ø122×10mm",
+      size: "Ø122mm",
+      quantity: rosettes,
+      unit_weight_kg: unitW,
+      total_weight_kg: Math.round(totalW * 100) / 100,
+    });
+  }
+
+  // GRATINGS (steel planks 320mm wide)
+  if (gratings > 0) {
+    const gratingLen = bayX.size / 3;
+    // Find closest standard plank length
+    const plankLenKey = Object.keys(PLANK_WEIGHTS).map(Number).find(
+      (l) => Math.abs(l - gratingLen) < 200
+    ) ?? Math.round(gratingLen);
+    const unitW = PLANK_WEIGHTS[plankLenKey] ?? ((gratingLen / 1000) * 8.5 + 2.3);
+    const totalW = gratings * unitW;
+    totalWeight += totalW;
+    details.push({
+      part_type: "Grating",
+      description: `Steel plank 320×${Math.round(gratingLen)}mm`,
+      size: `320×${Math.round(gratingLen)}mm`,
+      quantity: gratings,
+      unit_weight_kg: Math.round(unitW * 100) / 100,
+      total_weight_kg: Math.round(totalW * 100) / 100,
+    });
+  }
+
+  // TOEBOARDS
+  if (toeboards > 0) {
+    const unitW = 2.0;
+    const totalW = toeboards * unitW;
+    totalWeight += totalW;
+    details.push({
+      part_type: "Toeboard",
+      description: "Toeboard (yellow, 100mm high)",
+      size: "100mm",
+      quantity: toeboards,
+      unit_weight_kg: unitW,
+      total_weight_kg: Math.round(totalW * 100) / 100,
+    });
+  }
+
+  // GUARDRAIL POSTS (top level only)
+  {
+    const grQty = numStandards;
+    const unitW = 8.35;
+    const totalW = grQty * unitW;
+    totalWeight += totalW;
+    details.push({
+      part_type: "Guardrail post",
+      description: "Guardrail post 1m (38×2.5)",
+      size: "1000mm",
+      quantity: grQty,
+      unit_weight_kg: unitW,
+      total_weight_kg: Math.round(totalW * 100) / 100,
+    });
+  }
+
+  const estimatedWeight = Math.round(totalWeight);
 
   const bom: PartsBom = {
-    standards,
+    standards: numStandards,
     ledgers,
     braces,
     base_jacks: baseJacks,
@@ -299,8 +476,9 @@ export function assembleTower(
     planks,
     gratings,
     toeboards,
-    total_parts: standards + ledgers + braces + baseJacks + rosettes + planks + gratings + toeboards,
+    total_parts: numStandards + ledgers + braces + baseJacks + rosettes + planks + gratings + toeboards,
     estimated_weight_kg: Math.round(estimatedWeight),
+    details,
   };
 
   return {

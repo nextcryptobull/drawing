@@ -405,26 +405,50 @@ export function TowerAssembler() {
                           </CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-2">
-                          <div className="grid grid-cols-1 gap-1.5">
-                            <BomItem label="Standards (vertical tubes)" count={result.bom.standards} unit="pcs" />
-                            <BomItem label="Ledgers (horizontal)" count={result.bom.ledgers} unit="pcs" />
-                            <BomItem label="Diagonal braces" count={result.bom.braces} unit="pcs" />
-                            <BomItem label={result.config.base_type === "wheel" ? "Caster wheels" : "Base jacks"} count={result.bom.base_jacks} unit="pcs" />
-                            <BomItem label="Rosettes" count={result.bom.rosettes} unit="pcs" />
-                            <BomItem label="Grating platforms" count={result.bom.gratings} unit="pcs" />
-                            <BomItem label="Toeboards" count={result.bom.toeboards} unit="pcs" />
-                            <BomItem label="Steel planks (top)" count={result.bom.planks} unit="pcs" />
+                          {/* Detailed BOM with standard sizes and weights */}
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="border-b text-muted-foreground">
+                                  <th className="py-1 text-left font-medium">Part</th>
+                                  <th className="py-1 text-right font-medium">Qty</th>
+                                  <th className="py-1 text-right font-medium">Unit kg</th>
+                                  <th className="py-1 text-right font-medium">Total kg</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {result.bom.details.map((item, idx) => (
+                                  <tr key={idx} className="border-b border-border/50">
+                                    <td className="py-1.5">
+                                      <div className="font-medium">{item.part_type}</div>
+                                      <div className="text-muted-foreground">{item.description}</div>
+                                    </td>
+                                    <td className="py-1.5 text-right font-mono">{item.quantity}</td>
+                                    <td className="py-1.5 text-right font-mono">{item.unit_weight_kg}</td>
+                                    <td className="py-1.5 text-right font-mono font-semibold">{item.total_weight_kg}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                              <tfoot>
+                                <tr className="border-t-2 font-semibold">
+                                  <td className="py-2" colSpan={3}>Total weight</td>
+                                  <td className="py-2 text-right font-mono">
+                                    {result.bom.estimated_weight_kg.toLocaleString()} kg
+                                  </td>
+                                </tr>
+                                <tr>
+                                  <td className="pb-2" colSpan={3}>Tonnage</td>
+                                  <td className="pb-2 text-right font-mono text-primary">
+                                    {(result.bom.estimated_weight_kg / 1000).toFixed(2)} t
+                                  </td>
+                                </tr>
+                              </tfoot>
+                            </table>
                           </div>
                           <div className="flex items-center justify-between border-t pt-2">
                             <span className="text-sm font-medium">Total parts</span>
                             <Badge variant="secondary" className="font-mono">
                               {result.bom.total_parts} pcs
-                            </Badge>
-                          </div>
-                          <div className="flex items-center justify-between border-t pt-2">
-                            <span className="text-sm font-medium">Estimated weight</span>
-                            <Badge variant="secondary" className="font-mono">
-                              {result.bom.estimated_weight_kg.toLocaleString()} kg · {(result.bom.estimated_weight_kg / 1000).toFixed(2)} t
                             </Badge>
                           </div>
                         </CardContent>
