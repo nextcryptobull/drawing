@@ -90,6 +90,11 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
         roughness: 0.5,
         metalness: 0.7,
       }),
+      brakePedal: new THREE.MeshStandardMaterial({
+        color: "#cc2222",
+        roughness: 0.6,
+        metalness: 0.3,
+      }),
       spigot: new THREE.MeshStandardMaterial({
         color: "#56585e",
         roughness: 0.4,
@@ -340,46 +345,65 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
             <cylinderGeometry args={[spigotR, spigotR, spigot_length, 24]} />
           </mesh>
 
-          {/* Base: jack or wheel (below ground line) — compliant to ringlock standard */}
+          {/* Base: jack or wheel (below ground line) */}
           {base_type === "wheel" ? (
-            /* Standard ringlock caster wheel (8" / 200mm):
-               - Wheel: Ø200mm × 50mm wide, PU/rubber on cast iron
-               - Brake: Total lock (wheel + swivel)
-               - Stem: Ø35mm (1-3/8") round, with pin hole
-               - Fork: steel, 75mm wide
-               - Overall height: ~240mm
-               - Weight: ~5.7 kg (12.5 lbs)
-               - Load capacity: 500 lbs / 227 kg per wheel */
+            /* Standard ringlock caster wheel with brake (8" / 200mm):
+               Built in TOWER Z-up coords:
+               - Wheel axis = Y (horizontal, rolls along X)
+               - Fork plates straddle wheel at Y±28
+               - Stem axis = Z (vertical, connects to standard above)
+               - Brake pedal extends in +X direction (red) */
             <group
-              position={[0, 0, -120]}
+              position={[0, 0, -180]}
               onClick={(e) => {
                 e.stopPropagation();
-                if (onPartClick) onPartClick("Caster wheel (8\" total-lock)", [x, y, -120]);
+                if (onPartClick) onPartClick("Caster wheel 8\" with brake", [x, y, -180]);
               }}
             >
-              {/* Wheel: Ø200mm × 50mm wide (axis along Y) */}
-              <mesh material={materials.wheel} castShadow rotation={[Math.PI / 2, 0, 0]}>
-                <cylinderGeometry args={[100, 100, 50, 32]} />
+              {/* === FORK (two plates straddling the wheel) === */}
+              {/* Left fork plate (Y- side) */}
+              <mesh position={[0, -28, 60]} material={materials.wheelFork} castShadow>
+                <boxGeometry args={[6, 6, 120]} />
               </mesh>
-              {/* Hub (cast iron center) */}
-              <mesh material={materials.wheelFork} castShadow rotation={[Math.PI / 2, 0, 0]}>
-                <cylinderGeometry args={[40, 40, 52, 24]} />
+              {/* Right fork plate (Y+ side) */}
+              <mesh position={[0, 28, 60]} material={materials.wheelFork} castShadow>
+                <boxGeometry args={[6, 6, 120]} />
               </mesh>
-              {/* Brake pedal (red, on side of wheel) */}
-              <mesh position={[0, 30, 0]} material={materials.toeboard} castShadow>
-                <boxGeometry args={[15, 20, 8]} />
+
+              {/* === WHEEL (between the forks, axis along Y) === */}
+              {/* PU tread: Ø200mm × 48mm wide (default cylinder = Y axis = correct, NO rotation) */}
+              <mesh material={materials.wheel} castShadow>
+                <cylinderGeometry args={[100, 100, 48, 32]} />
               </mesh>
-              {/* Fork plate (steel, 75mm wide) */}
-              <mesh position={[0, 0, 55]} material={materials.wheelFork} castShadow>
-                <boxGeometry args={[75, 55, 6]} />
+              {/* Cast iron hub: Ø60mm × 52mm */}
+              <mesh material={materials.wheelFork} castShadow>
+                <cylinderGeometry args={[30, 30, 52, 24]} />
               </mesh>
-              {/* Stem: Ø35mm, 60mm long */}
-              <mesh position={[0, 0, 85]} material={materials.wheelFork} castShadow rotation={[Math.PI / 2, 0, 0]}>
-                <cylinderGeometry args={[17.5, 17.5, 60, 16]} />
+              {/* Axle: Ø16mm through hub */}
+              <mesh material={materials.spigot} castShadow>
+                <cylinderGeometry args={[8, 8, 56, 12]} />
               </mesh>
-              {/* Pin hole (cross pin Ø8mm) */}
-              <mesh position={[0, 0, 100]} rotation={[0, 0, Math.PI / 2]} material={materials.innerBore}>
-                <cylinderGeometry args={[4, 4, 40, 8]} />
+
+              {/* === SWIVEL HOUSING (above wheel, between fork top and stem) === */}
+              {/* Ø70mm × 25mm tall (vertical = Z axis, needs rotation PI/2 around X) */}
+              <mesh position={[0, 0, 130]} material={materials.wheelFork} castShadow rotation={[Math.PI / 2, 0, 0]}>
+                <cylinderGeometry args={[35, 35, 25, 24]} />
+              </mesh>
+
+              {/* === BRAKE PEDAL (red, total-lock) === */}
+              {/* Pedal arm: extends outward in +X from swivel housing */}
+              <mesh position={[35, 0, 125]} material={materials.brakePedal} castShadow>
+                <boxGeometry args={[40, 15, 6]} />
+              </mesh>
+              {/* Pedal pad: flat plate for foot pressure */}
+              <mesh position={[55, 0, 120]} material={materials.brakePedal} castShadow>
+                <boxGeometry args={[20, 25, 8]} />
+              </mesh>
+
+              {/* === STEM (connects swivel to standard above) === */}
+              {/* Stem: Ø35mm × 40mm, vertical (Z axis, rotation PI/2 around X) */}
+              <mesh position={[0, 0, 162]} material={materials.wheelFork} castShadow rotation={[Math.PI / 2, 0, 0]}>
+                <cylinderGeometry args={[17.5, 17.5, 40, 16]} />
               </mesh>
             </group>
           ) : include_base_jacks ? (
