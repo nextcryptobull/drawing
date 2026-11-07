@@ -44,9 +44,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { cn } from "@/lib/utils";
 
@@ -132,70 +129,57 @@ export function TowerAssembler() {
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
       {/* Header */}
-      <div className="border-b px-6 py-3">
+      <div className="border-b px-4 py-2 sm:px-6 sm:py-3">
         <div className="flex items-center gap-2">
           <Boxes className="size-5 text-primary" />
-          <h1 className="text-lg font-semibold tracking-tight">
-            Scaffold Tower Assembler
+          <h1 className="text-base font-semibold tracking-tight sm:text-lg">
+            Scaffold Tower BOM Estimator
           </h1>
-          <span className="ml-auto text-xs text-muted-foreground">
-            Enter dimensions → preview 3D → export STEP
-          </span>
         </div>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Quick field BOM &amp; tonnage — not for drawing details
+        </p>
       </div>
 
-      {/* Main content: 3D viewer (left) + form (right) */}
-      <div className="flex min-h-0 flex-1">
-        <ResizablePanelGroup direction="horizontal" className="min-h-0 flex-1">
-          {/* LEFT — 3D viewer */}
-          <ResizablePanel
-            defaultSize={55}
-            minSize={35}
-            className="bg-[#0e0f12]"
-          >
-            <div className="relative h-full w-full">
-              <TowerViewer config={towerConfig} />
-            </div>
-          </ResizablePanel>
+      {/* Main content: 3D viewer + form */}
+      <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
+        {/* 3D viewer — full width on mobile, left half on desktop */}
+        <div className="h-[40vh] min-h-[250px] bg-[#0e0f12] sm:h-auto sm:flex-1">
+          <div className="relative h-full w-full">
+            <TowerViewer config={towerConfig} />
+          </div>
+        </div>
 
-          <ResizableHandle withHandle />
-
-          {/* RIGHT — form + BOM */}
-          <ResizablePanel
-            defaultSize={45}
-            minSize={30}
-            maxSize={70}
-            className="bg-card"
-          >
-            <div className="h-full overflow-hidden border-l">
-              <ScrollArea className="min-h-0 h-full">
-                <div className="space-y-4 p-5">
-                  {/* Input section */}
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="flex items-center gap-2 text-base">
-                        <Ruler className="size-4" />
-                        Tower Dimensions
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <div className="space-y-1.5">
-                        <Label htmlFor="dimensions" className="text-xs text-muted-foreground">
-                          Length × Width × Height
-                        </Label>
-                        <Input
-                          id="dimensions"
-                          value={input}
-                          onChange={(e) => setInput(e.target.value)}
-                          placeholder="e.g. 2x2x6m  or  2570x2000x6000mm"
-                          className="font-mono text-base"
-                          autoComplete="off"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          Format: <code className="rounded bg-muted px-1">LxWxH</code> + unit
-                          (m, mm, cm, ft). Example: <code className="rounded bg-muted px-1">2.5x2x6m</code>
-                        </p>
-                      </div>
+        {/* Form + BOM — below viewer on mobile, right half on desktop */}
+        <div className="min-h-0 flex-1 border-t bg-card sm:border-l sm:border-t-0">
+          <ScrollArea className="h-full max-h-[60vh] sm:max-h-none">
+            <div className="space-y-4 p-4 sm:p-5">
+              {/* Input section */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Ruler className="size-4" />
+                    Tower Dimensions
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="dimensions" className="text-xs text-muted-foreground">
+                      Length × Width × Height
+                    </Label>
+                    <Input
+                      id="dimensions"
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      placeholder="e.g. 2x2x6m  or  2570x2000x6000mm"
+                      className="font-mono text-base"
+                      autoComplete="off"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Format: <code className="rounded bg-muted px-1">LxWxH</code> + unit
+                      (m, mm, cm, ft). Example: <code className="rounded bg-muted px-1">2.5x2x6m</code>
+                    </p>
+                  </div>
 
                       {/* Quick presets */}
                       <div>
@@ -503,9 +487,7 @@ export function TowerAssembler() {
                   )}
                 </div>
               </ScrollArea>
-            </div>
-          </ResizablePanel>
-        </ResizablePanelGroup>
+        </div>
       </div>
     </div>
   );
