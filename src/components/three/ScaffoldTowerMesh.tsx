@@ -340,41 +340,90 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
             <cylinderGeometry args={[spigotR, spigotR, spigot_length, 24]} />
           </mesh>
 
-          {/* Base: jack or wheel (below ground line) */}
+          {/* Base: jack or wheel (below ground line) — compliant to ringlock standard */}
           {base_type === "wheel" ? (
+            /* Standard ringlock caster wheel (8" / 200mm):
+               - Wheel: Ø200mm × 50mm wide, PU/rubber on cast iron
+               - Brake: Total lock (wheel + swivel)
+               - Stem: Ø35mm (1-3/8") round, with pin hole
+               - Fork: steel, 75mm wide
+               - Overall height: ~240mm
+               - Weight: ~5.7 kg (12.5 lbs)
+               - Load capacity: 500 lbs / 227 kg per wheel */
             <group
               position={[0, 0, -120]}
               onClick={(e) => {
                 e.stopPropagation();
-                if (onPartClick) onPartClick("Caster wheel", [x, y, -120]);
+                if (onPartClick) onPartClick("Caster wheel (8\" total-lock)", [x, y, -120]);
               }}
             >
-              {/* Caster wheel (blue, axis along Y) */}
-              <mesh material={materials.wheel} castShadow>
-                <cylinderGeometry args={[50, 50, 40, 32]} />
+              {/* Wheel: Ø200mm × 50mm wide (axis along Y) */}
+              <mesh material={materials.wheel} castShadow rotation={[Math.PI / 2, 0, 0]}>
+                <cylinderGeometry args={[100, 100, 50, 32]} />
               </mesh>
-              {/* Fork plate (steel) */}
+              {/* Hub (cast iron center) */}
+              <mesh material={materials.wheelFork} castShadow rotation={[Math.PI / 2, 0, 0]}>
+                <cylinderGeometry args={[40, 40, 52, 24]} />
+              </mesh>
+              {/* Brake pedal (red, on side of wheel) */}
+              <mesh position={[0, 30, 0]} material={materials.toeboard} castShadow>
+                <boxGeometry args={[15, 20, 8]} />
+              </mesh>
+              {/* Fork plate (steel, 75mm wide) */}
               <mesh position={[0, 0, 55]} material={materials.wheelFork} castShadow>
-                <boxGeometry args={[70, 50, 6]} />
+                <boxGeometry args={[75, 55, 6]} />
               </mesh>
-              {/* Stem connecting fork to standard */}
-              <mesh position={[0, 0, 85]} material={materials.wheelFork} castShadow>
-                <cylinderGeometry args={[15, 15, 60, 16]} />
+              {/* Stem: Ø35mm, 60mm long */}
+              <mesh position={[0, 0, 85]} material={materials.wheelFork} castShadow rotation={[Math.PI / 2, 0, 0]}>
+                <cylinderGeometry args={[17.5, 17.5, 60, 16]} />
+              </mesh>
+              {/* Pin hole (cross pin Ø8mm) */}
+              <mesh position={[0, 0, 100]} rotation={[0, 0, Math.PI / 2]} material={materials.innerBore}>
+                <cylinderGeometry args={[4, 4, 40, 8]} />
               </mesh>
             </group>
           ) : include_base_jacks ? (
-            <mesh
-              rotation={verticalRotation}
-              position={[0, 0, -base_jack_length / 2]}
-              material={materials.baseJack}
-              castShadow
+            /* Standard ringlock base jack:
+               - Solid: Ø38mm × 600mm, ACME thread (4 TPI)
+               - Base plate: 150×150×6mm
+               - Adjustment range: 40-450mm
+               - Weight: solid 5.2 kg, hollow 4.3 kg
+               - Load capacity: 155 kN at 450mm height */
+            <group
+              position={[0, 0, 0]}
               onClick={(e) => {
                 e.stopPropagation();
-                if (onPartClick) onPartClick("Base jack", [x, y, -base_jack_length / 2]);
+                if (onPartClick) onPartClick("Base jack 38×600mm", [x, y, -base_jack_length / 2]);
               }}
             >
-              <cylinderGeometry args={[baseJackR, baseJackR, base_jack_length, 20]} />
-            </mesh>
+              {/* Threaded shaft: Ø38mm × 600mm */}
+              <mesh
+                rotation={verticalRotation}
+                position={[0, 0, -base_jack_length / 2]}
+                material={materials.baseJack}
+                castShadow
+              >
+                <cylinderGeometry args={[19, 19, base_jack_length, 20]} />
+              </mesh>
+              {/* Base plate: 150×150×6mm */}
+              <mesh
+                position={[0, 0, -base_jack_length + 3]}
+                material={materials.baseJack}
+                castShadow
+                receiveShadow
+              >
+                <boxGeometry args={[150, 150, 6]} />
+              </mesh>
+              {/* Adjusting nut (hex, Ø60mm × 20mm) */}
+              <mesh
+                rotation={verticalRotation}
+                position={[0, 0, -20]}
+                material={materials.spigot}
+                castShadow
+              >
+                <cylinderGeometry args={[30, 30, 20, 6]} />
+              </mesh>
+            </group>
           ) : null}
         </group>
       ))}

@@ -461,12 +461,19 @@ def build_tower(cfg: Dict[str, Any]) -> cq.Assembly:
             y = j * bay_y - tower_y / 2.0
             std_count += 1
 
-            # Base: jack or wheel (below ground)
+            # Base: jack or wheel (below ground) — compliant to ringlock standard
             base_type = str(cfg.get("base_type", "jack"))
             if base_type == "wheel":
-                # Caster wheel assembly: wheel + fork + stem
-                wheel_od = 100.0  # 100mm wheel
-                wheel_w = 40.0
+                # Standard ringlock caster wheel (8" / 200mm):
+                # Wheel: Ø200mm × 50mm wide, PU on cast iron
+                # Total lock brake (wheel + swivel)
+                # Stem: Ø35mm (1-3/8") round with pin hole
+                # Fork: steel, 75mm wide
+                # Overall height: ~240mm
+                # Weight: 5.7 kg
+                wheel_od = 200.0
+                wheel_w = 50.0
+                # Wheel (PU tread)
                 wheel = (
                     cq.Workplane("XY")
                     .circle(wheel_od / 2.0)
@@ -476,12 +483,35 @@ def build_tower(cfg: Dict[str, Any]) -> cq.Assembly:
                     wheel,
                     name=f"Wheel_{std_count}",
                     loc=cq.Location(cq.Vector(x, y, -120)),
-                    color=cq.Color(0.10, 0.30, 0.85),  # blue
+                    color=cq.Color(0.10, 0.30, 0.85),  # blue PU
                 )
-                # Fork plate
+                # Hub (cast iron center)
+                hub = (
+                    cq.Workplane("XY")
+                    .circle(40.0 / 2.0)
+                    .extrude(wheel_w + 2.0)
+                )
+                asm.add(
+                    hub,
+                    name=f"WheelHub_{std_count}",
+                    loc=cq.Location(cq.Vector(x, y, -120)),
+                    color=cq.Color(0.42, 0.44, 0.46),
+                )
+                # Brake pedal (yellow/red)
+                brake_pedal = (
+                    cq.Workplane("XY")
+                    .box(15.0, 20.0, 8.0)
+                )
+                asm.add(
+                    brake_pedal,
+                    name=f"BrakePedal_{std_count}",
+                    loc=cq.Location(cq.Vector(x, y + 30.0, -120)),
+                    color=cq.Color(0.83, 0.20, 0.10),  # red
+                )
+                # Fork plate (steel, 75×55×6mm)
                 fork = (
                     cq.Workplane("XY")
-                    .box(70, 50, 6)
+                    .box(75.0, 55.0, 6.0)
                 )
                 asm.add(
                     fork,
@@ -489,11 +519,11 @@ def build_tower(cfg: Dict[str, Any]) -> cq.Assembly:
                     loc=cq.Location(cq.Vector(x, y, -65)),
                     color=cq.Color(0.42, 0.44, 0.46),
                 )
-                # Stem
+                # Stem: Ø35mm × 60mm
                 stem = (
                     cq.Workplane("XY")
-                    .circle(15 / 2.0)
-                    .extrude(60)
+                    .circle(17.5)
+                    .extrude(60.0)
                 )
                 asm.add(
                     stem,
@@ -502,11 +532,45 @@ def build_tower(cfg: Dict[str, Any]) -> cq.Assembly:
                     color=cq.Color(0.42, 0.44, 0.46),
                 )
             elif include_base_jacks:
+                # Standard ringlock base jack:
+                # Solid: Ø38mm × 600mm, ACME thread (4 TPI)
+                # Base plate: 150×150×6mm
+                # Adjustment range: 40-450mm
+                # Weight: 5.2 kg (solid), 4.3 kg (hollow)
+                # Threaded shaft
+                jack_shaft = (
+                    cq.Workplane("XY")
+                    .circle(19.0)  # Ø38mm / 2
+                    .extrude(base_jack_len)
+                )
                 asm.add(
-                    base_jack,
-                    name=f"BaseJack_{std_count}",
+                    jack_shaft,
+                    name=f"JackShaft_{std_count}",
                     loc=cq.Location(cq.Vector(x, y, -base_jack_len)),
                     color=cq.Color(0.30, 0.30, 0.35),
+                )
+                # Base plate: 150×150×6mm
+                base_plate = (
+                    cq.Workplane("XY")
+                    .box(150.0, 150.0, 6.0)
+                )
+                asm.add(
+                    base_plate,
+                    name=f"BasePlate_{std_count}",
+                    loc=cq.Location(cq.Vector(x, y, -base_jack_len + 3.0)),
+                    color=cq.Color(0.30, 0.30, 0.35),
+                )
+                # Adjusting nut (hex, Ø60mm × 20mm)
+                nut = (
+                    cq.Workplane("XY")
+                    .polygon(6, 60.0 / math.cos(math.radians(30)))
+                    .extrude(20.0)
+                )
+                asm.add(
+                    nut,
+                    name=f"JackNut_{std_count}",
+                    loc=cq.Location(cq.Vector(x, y, -20.0)),
+                    color=cq.Color(0.40, 0.40, 0.45),
                 )
 
             # Vertical tube

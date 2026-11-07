@@ -383,16 +383,24 @@ export function assembleTower(
     });
   }
 
-  // BASE JACKS / WHEELS
+  // BASE JACKS / WHEELS — compliant to ringlock standard
+  // Base jack solid 38×600mm: 5.2 kg (ACE catalog), base plate 150×150×6mm
+  // Base jack hollow 38×600mm: 4.3 kg (wm-scaffold), adjustable 40-450mm
+  // Caster wheel 8" (200mm) total-lock: 5.7 kg (12.5 lbs), Ø200×50mm, PU on cast iron
+  //   - Total lock brake (wheel + swivel)
+  //   - Stem Ø35mm (1-3/8") round with pin hole
+  //   - Load capacity: 500 lbs / 227 kg per wheel
   {
-    const unitW = config.base_type === "wheel" ? 4.5 : 5.2;
-    const desc = config.base_type === "wheel" ? "Caster wheel 200mm" : "Base jack 38×600mm (solid)";
+    const unitW = config.base_type === "wheel" ? 5.7 : 5.2;
+    const desc = config.base_type === "wheel"
+      ? 'Caster wheel 8" (200mm) total-lock, PU on cast iron'
+      : "Base jack 38×600mm solid, ACME thread, base plate 150×150×6mm";
     const totalW = baseJacks * unitW;
     totalWeight += totalW;
     details.push({
       part_type: config.base_type === "wheel" ? "Caster wheel" : "Base jack",
       description: desc,
-      size: config.base_type === "wheel" ? "200mm" : "38×600mm",
+      size: config.base_type === "wheel" ? "Ø200×50mm" : "38×600mm",
       quantity: baseJacks,
       unit_weight_kg: unitW,
       total_weight_kg: Math.round(totalW * 100) / 100,
