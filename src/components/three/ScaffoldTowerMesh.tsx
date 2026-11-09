@@ -455,22 +455,28 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         </group>
       ))}
 
-      {/* ---- Reinforcing ledgers at basement level ---- */}
-      {/* Horizontal ledgers just above base jacks (at z=100mm) to brace the
-          bottom of the tower. These run along both X and Y at the base. */}
+      {/* ---- Reinforcing ledgers at basement level (clickable, different color) ---- */}
+      {/* These are BASEMENT REINFORCING ledgers — different from regular lift ledgers.
+          Uses a slightly different material color to distinguish them. */}
       {Array.from({ length: bays_x }).map((_, i) =>
         Array.from({ length: bays_y + 1 }).map((_, j) => {
+          const partId = `reinforce-x-${i}-${j}`;
+          if (isRemoved(partId)) return null;
           const x1 = i * bay_length_x - towerX / 2;
           const x2 = (i + 1) * bay_length_x - towerX / 2;
           const y = j * bay_length_y - towerY / 2;
           const midX = (x1 + x2) / 2;
           return (
             <mesh
-              key={`reinforce-x-${i}-${j}`}
+              key={partId}
               position={[midX, y, 100]}
               rotation={[0, 0, Math.PI / 2]}
-              material={materials.ledger}
+              material={materials.spigot}
               castShadow
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onPartClick) onPartClick(`Reinforcing ledger X (basement)`, [midX, y, 100], partId);
+              }}
             >
               <cylinderGeometry args={[ledgerR, ledgerR, bay_length_x, 16]} />
             </mesh>
@@ -479,16 +485,22 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       )}
       {Array.from({ length: bays_x + 1 }).map((_, i) =>
         Array.from({ length: bays_y }).map((_, j) => {
+          const partId = `reinforce-y-${i}-${j}`;
+          if (isRemoved(partId)) return null;
           const x = i * bay_length_x - towerX / 2;
           const y1 = j * bay_length_y - towerY / 2;
           const y2 = (j + 1) * bay_length_y - towerY / 2;
           const midY = (y1 + y2) / 2;
           return (
             <mesh
-              key={`reinforce-y-${i}-${j}`}
+              key={partId}
               position={[x, midY, 100]}
-              material={materials.ledger}
+              material={materials.spigot}
               castShadow
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onPartClick) onPartClick(`Reinforcing ledger Y (basement)`, [x, midY, 100], partId);
+              }}
             >
               <cylinderGeometry args={[ledgerR, ledgerR, bay_length_y, 16]} />
             </mesh>
@@ -496,26 +508,30 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         })
       )}
 
-      {/* ---- Ledgers (horizontal tubes) ---- */}
+      {/* ---- Regular ledgers (horizontal tubes at lift levels, clickable) ---- */}
       {ledgers.map((l, idx) => {
-        // Cylinder default axis is +Y. For axis "y", no rotation needed.
-        // For axis "x", rotate by Z by 90°.
+        const partId = `ledger-${idx}`;
+        if (isRemoved(partId)) return null;
         const rot: [number, number, number] =
           l.axis === "x" ? [0, 0, Math.PI / 2] : [0, 0, 0];
         return (
           <mesh
-            key={`ledger-${idx}`}
+            key={partId}
             rotation={rot}
             position={[l.x, l.y, l.z]}
             material={materials.ledger}
             castShadow
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onPartClick) onPartClick(`Ledger ${l.axis.toUpperCase()} L${Math.ceil(l.z / lift_height)}`, [l.x, l.y, l.z], partId);
+            }}
           >
             <cylinderGeometry args={[ledgerR, ledgerR, l.len, 20]} />
           </mesh>
         );
       })}
 
-      {/* ---- Diagonal braces ---- */}
+      {/* ---- Diagonal braces (clickable) ---- */}
       {braces.map((b, idx) => {
         const partId = `brace-${idx}`;
         if (isRemoved(partId)) return null;
@@ -532,21 +548,22 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         const mz = (z1 + z2) / 2;
 
         // Compute rotation: cylinder default axis is +Y.
-        // We want it to point from `from` to `to`.
-        // Direction vector
         const dir = new THREE.Vector3(dx, dy, dz).normalize();
-        // Default cylinder axis is +Y, so we need rotation from Y to dir
         const yAxis = new THREE.Vector3(0, 1, 0);
         const quat = new THREE.Quaternion().setFromUnitVectors(yAxis, dir);
         const euler = new THREE.Euler().setFromQuaternion(quat);
 
         return (
           <mesh
-            key={`brace-${idx}`}
+            key={partId}
             rotation={[euler.x, euler.y, euler.z]}
             position={[mx, my, mz]}
             material={materials.brace}
             castShadow
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onPartClick) onPartClick(`Diagonal brace ${idx}`, [mx, my, mz], partId);
+            }}
           >
             <cylinderGeometry args={[tubeR * 0.4, tubeR * 0.4, len, 8]} />
           </mesh>
