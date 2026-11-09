@@ -265,7 +265,7 @@ export function TowerViewer({ config, onRemovePart, removedParts }: { config: To
                 config={debounced}
                 removedParts={removedParts}
                 onPartClick={(name, pos, id) => {
-                  setFocusTarget({ name, pos });
+                  setFocusTarget({ name, pos, id });
                 }}
                 onRemovePart={onRemovePart}
               />
@@ -284,7 +284,7 @@ export function TowerViewer({ config, onRemovePart, removedParts }: { config: To
       </Canvas>
 
       {/* Overlay: dimensions + focused part */}
-      <div className="pointer-events-none absolute left-4 top-4 rounded-md bg-black/60 px-3 py-2 text-xs text-white/90 backdrop-blur">
+      <div className="absolute left-4 top-4 rounded-md bg-black/60 px-3 py-2 text-xs text-white/90 backdrop-blur">
         <div className="font-semibold">
           {debounced.bays_x}×{debounced.bays_y} bays · {debounced.num_lifts} lifts
         </div>
