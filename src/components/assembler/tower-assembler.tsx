@@ -310,7 +310,7 @@ export function TowerAssembler() {
                             label="Bays in X (length)"
                             value={result.config.bays_x}
                             min={1}
-                            max={6}
+                            max={50}
                             onChange={(v) => updateFromConfig({ bays_x: v })}
                           />
                           {/* Bays Y */}
@@ -318,7 +318,7 @@ export function TowerAssembler() {
                             label="Bays in Y (width)"
                             value={result.config.bays_y}
                             min={1}
-                            max={4}
+                            max={20}
                             onChange={(v) => updateFromConfig({ bays_y: v })}
                           />
                           {/* Lifts */}
@@ -326,7 +326,7 @@ export function TowerAssembler() {
                             label="Lifts (levels)"
                             value={result.config.num_lifts}
                             min={1}
-                            max={12}
+                            max={30}
                             onChange={(v) => updateFromConfig({ num_lifts: v })}
                           />
                           {/* Bay length X */}
