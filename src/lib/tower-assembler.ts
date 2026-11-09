@@ -228,11 +228,12 @@ export function assembleTower(
   const warnings: string[] = [];
 
   // Calculate bay configuration — use overrides if provided, otherwise calculate
-  const bayX = overrides?.bays_x && overrides?.bay_length_x
-    ? { count: overrides.bays_x, size: overrides.bay_length_x }
+  // For bays_x: use override count if set, but keep the bay_length from input or override
+  const bayX = overrides?.bays_x != null
+    ? { count: overrides.bays_x, size: overrides?.bay_length_x ?? closestStandard(input.requestedLength, STANDARD_BAY_LENGTHS) }
     : calculateBays(input.requestedLength, STANDARD_BAY_LENGTHS);
-  const bayY = overrides?.bays_y && overrides?.bay_length_y
-    ? { count: overrides.bays_y, size: overrides.bay_length_y }
+  const bayY = overrides?.bays_y != null
+    ? { count: overrides.bays_y, size: overrides?.bay_length_y ?? closestStandard(input.requestedWidth, STANDARD_BAY_WIDTHS) }
     : calculateBays(input.requestedWidth, STANDARD_BAY_WIDTHS);
   const liftHeight = overrides?.lift_height ?? closestStandard(
     Math.min(input.requestedHeight, 2000),
@@ -287,7 +288,9 @@ export function assembleTower(
   // Ledgers
   const ledgersXPerLevel = (bayX.count) * (bayY.count + 1);
   const ledgersYPerLevel = (bayX.count + 1) * (bayY.count);
-  const ledgers = (ledgersXPerLevel + ledgersYPerLevel) * numLifts;
+  // Reinforcing ledgers at basement level (same count as one lift level)
+  const basementLedgers = ledgersXPerLevel + ledgersYPerLevel;
+  const ledgers = (ledgersXPerLevel + ledgersYPerLevel) * numLifts + basementLedgers;
 
   // Braces
   const perimeterFaces = 2 * (bayX.count + bayY.count);
@@ -335,15 +338,15 @@ export function assembleTower(
     });
   }
 
-  // LEDGERS along X
+  // LEDGERS along X (including basement reinforcing)
   const ledgerXWeight = LEDGER_WEIGHTS[bayX.size] ?? ((bayX.size / 1000) * 3.56 + 1.0);
-  const ledgerXQty = ledgersXPerLevel * numLifts;
+  const ledgerXQty = (ledgersXPerLevel * numLifts) + ledgersXPerLevel; // lift levels + basement
   {
     const totalW = ledgerXQty * ledgerXWeight;
     totalWeight += totalW;
     details.push({
       part_type: "Ledger",
-      description: `Ledger ${bayX.size}mm (48.3×3.2)`,
+      description: `Ledger ${bayX.size}mm (48.3×3.2) incl. basement reinforcing`,
       size: `${bayX.size}mm`,
       quantity: ledgerXQty,
       unit_weight_kg: Math.round(ledgerXWeight * 100) / 100,
@@ -351,15 +354,15 @@ export function assembleTower(
     });
   }
 
-  // LEDGERS along Y
+  // LEDGERS along Y (including basement reinforcing)
   const ledgerYWeight = LEDGER_WEIGHTS[bayY.size] ?? ((bayY.size / 1000) * 3.56 + 1.0);
-  const ledgerYQty = ledgersYPerLevel * numLifts;
+  const ledgerYQty = (ledgersYPerLevel * numLifts) + ledgersYPerLevel; // lift levels + basement
   {
     const totalW = ledgerYQty * ledgerYWeight;
     totalWeight += totalW;
     details.push({
       part_type: "Ledger",
-      description: `Ledger ${bayY.size}mm (48.3×3.2)`,
+      description: `Ledger ${bayY.size}mm (48.3×3.2) incl. basement reinforcing`,
       size: `${bayY.size}mm`,
       quantity: ledgerYQty,
       unit_weight_kg: Math.round(ledgerYWeight * 100) / 100,

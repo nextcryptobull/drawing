@@ -452,6 +452,47 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
         </group>
       ))}
 
+      {/* ---- Reinforcing ledgers at basement level ---- */}
+      {/* Horizontal ledgers just above base jacks (at z=100mm) to brace the
+          bottom of the tower. These run along both X and Y at the base. */}
+      {Array.from({ length: bays_x }).map((_, i) =>
+        Array.from({ length: bays_y + 1 }).map((_, j) => {
+          const x1 = i * bay_length_x - towerX / 2;
+          const x2 = (i + 1) * bay_length_x - towerX / 2;
+          const y = j * bay_length_y - towerY / 2;
+          const midX = (x1 + x2) / 2;
+          return (
+            <mesh
+              key={`reinforce-x-${i}-${j}`}
+              position={[midX, y, 100]}
+              rotation={[0, 0, Math.PI / 2]}
+              material={materials.ledger}
+              castShadow
+            >
+              <cylinderGeometry args={[ledgerR, ledgerR, bay_length_x, 16]} />
+            </mesh>
+          );
+        })
+      )}
+      {Array.from({ length: bays_x + 1 }).map((_, i) =>
+        Array.from({ length: bays_y }).map((_, j) => {
+          const x = i * bay_length_x - towerX / 2;
+          const y1 = j * bay_length_y - towerY / 2;
+          const y2 = (j + 1) * bay_length_y - towerY / 2;
+          const midY = (y1 + y2) / 2;
+          return (
+            <mesh
+              key={`reinforce-y-${i}-${j}`}
+              position={[x, midY, 100]}
+              material={materials.ledger}
+              castShadow
+            >
+              <cylinderGeometry args={[ledgerR, ledgerR, bay_length_y, 16]} />
+            </mesh>
+          );
+        })
+      )}
+
       {/* ---- Ledgers (horizontal tubes) ---- */}
       {ledgers.map((l, idx) => {
         // Cylinder default axis is +Y. For axis "y", no rotation needed.

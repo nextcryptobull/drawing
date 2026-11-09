@@ -599,6 +599,32 @@ def build_tower(cfg: Dict[str, Any]) -> cq.Assembly:
                 color=cq.Color(0.40, 0.40, 0.45),
             )
 
+    # Reinforcing ledgers at basement level (just above base jacks, z=100mm)
+    # These brace the bottom of the tower
+    basement_z = 100.0
+    # Along X
+    for j in range(bays_y + 1):
+        for i in range(bays_x):
+            x = i * bay_x - tower_x / 2.0
+            y = j * bay_y - tower_y / 2.0
+            asm.add(
+                ledger_x,
+                name=f"ReinforceLedgerX_B_{i}_{j}",
+                loc=cq.Location(cq.Vector(x, y, basement_z)),
+                color=cq.Color(0.50, 0.50, 0.55),
+            )
+    # Along Y
+    for i in range(bays_x + 1):
+        for j in range(bays_y):
+            x = i * bay_x - tower_x / 2.0
+            y = j * bay_y - tower_y / 2.0
+            asm.add(
+                ledger_y,
+                name=f"ReinforceLedgerY_B_{i}_{j}",
+                loc=cq.Location(cq.Vector(x, y, basement_z)),
+                color=cq.Color(0.50, 0.50, 0.55),
+            )
+
     # Ledgers at each lift level
     for k in range(1, num_lifts + 1):
         z = k * lift_h
