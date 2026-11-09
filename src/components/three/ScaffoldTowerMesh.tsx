@@ -22,7 +22,7 @@ import type { TowerConfig } from "@/lib/part-types";
  * The group is centred on the origin in XY so the camera frames the tower
  * nicely. Z=0 is ground level.
  */
-export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig; onPartClick?: (name: string, position: [number, number, number]) => void }) {
+export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemovePart }: { config: TowerConfig; onPartClick?: (name: string, position: [number, number, number], id?: string) => void; removedParts?: Set<string>; onRemovePart?: (id: string) => void }) {
   const {
     bays_x,
     bays_y,
@@ -125,6 +125,9 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
     }),
     [],
   );
+
+  // Check if a part ID has been removed by the user
+  const isRemoved = (id: string) => removedParts?.has(id) ?? false;
 
   const towerX = bays_x * bay_length_x;
   const towerY = bays_y * bay_length_y;
@@ -357,7 +360,7 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
               position={[0, 0, -180]}
               onClick={(e) => {
                 e.stopPropagation();
-                if (onPartClick) onPartClick("Caster wheel 8\" with brake", [x, y, -180]);
+                if (onPartClick) onPartClick("Caster wheel 8\" with brake", [x, y, -180], `wheel-${idx}`);
               }}
             >
               {/* === FORK (two plates straddling the wheel) === */}
@@ -417,7 +420,7 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
               position={[0, 0, 0]}
               onClick={(e) => {
                 e.stopPropagation();
-                if (onPartClick) onPartClick("Base jack 38×600mm", [x, y, -base_jack_length / 2]);
+                if (onPartClick) onPartClick("Base jack 38×600mm", [x, y, -base_jack_length / 2], `jack-${idx}`);
               }}
             >
               {/* Threaded shaft: Ø38mm × 600mm */}
@@ -514,6 +517,8 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
 
       {/* ---- Diagonal braces ---- */}
       {braces.map((b, idx) => {
+        const partId = `brace-${idx}`;
+        if (isRemoved(partId)) return null;
         const [x1, y1, z1] = b.from;
         const [x2, y2, z2] = b.to;
         const dx = x2 - x1;
@@ -598,21 +603,25 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
                 boardSections = [sectionX0, sectionX1, sectionX2];
               }
 
-              return boardSections.map((boardX, bi) => (
+              return boardSections.map((boardX, bi) => {
+                const partId = `grating-L${levelIdx}-${i}-${j}-${bi}`;
+                if (isRemoved(partId)) return null;
+                return (
                 <mesh
-                  key={`grating-L${levelIdx}-${i}-${j}-${bi}`}
+                  key={partId}
                   position={[boardX, bayCenterY, gratingZ]}
                   material={materials.grating}
                   receiveShadow
                   castShadow
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (onPartClick) onPartClick(`Grating L${levelIdx + 1} Bay ${i}`, [boardX, bayCenterY, gratingZ]);
+                    if (onPartClick) onPartClick(`Grating L${levelIdx + 1} Bay ${i}`, [boardX, bayCenterY, gratingZ], partId);
                   }}
                 >
                   <boxGeometry args={[sectionWidth * 0.9, boardLen, gratingThk]} />
                 </mesh>
-              ));
+                );
+              });
             })
           )}
         </group>
@@ -771,7 +780,7 @@ export function ScaffoldTowerMesh({ config, onPartClick }: { config: TowerConfig
                   receiveShadow
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (onPartClick) onPartClick("Trap door", [openSectionX, bayCy, trapZ]);
+                    if (onPartClick) onPartClick("Trap door", [openSectionX, bayCy, trapZ], "trapdoor");
                   }}
                 >
                   <boxGeometry args={[sectionWidth * 0.9, bay_length_y * 0.94, gratingThk]} />

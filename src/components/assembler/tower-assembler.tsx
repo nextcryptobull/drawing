@@ -11,9 +11,11 @@ import {
   Loader2,
   Minus,
   Plus,
+  RotateCcw,
   Ruler,
   Settings2,
   Sliders,
+  Undo2,
   Zap,
 } from "lucide-react";
 
@@ -62,6 +64,7 @@ export function TowerAssembler() {
   const [input, setInput] = useState("2x2x6m");
   const [downloading, setDownloading] = useState(false);
   const [overrides, setOverrides] = useState<Partial<BayConfig>>({});
+  const [removedParts, setRemovedParts] = useState<Set<string>>(new Set());
 
   // Parse and assemble as user types — applies overrides on top of parsed dims
   const result = useMemo(() => {
@@ -139,6 +142,19 @@ export function TowerAssembler() {
         <p className="mt-0.5 text-xs text-muted-foreground">
           Quick field BOM &amp; tonnage — not for drawing details
         </p>
+        {removedParts.size > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              setRemovedParts(new Set());
+              toast.success("All parts restored");
+            }}
+            className="mt-1 flex items-center gap-1 rounded bg-orange-600 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-orange-700"
+          >
+            <Undo2 className="size-3" />
+            Restore {removedParts.size} removed {removedParts.size === 1 ? "part" : "parts"}
+          </button>
+        )}
       </div>
 
       {/* Main content: 3D viewer + form */}
@@ -146,7 +162,13 @@ export function TowerAssembler() {
         {/* 3D viewer — full width on mobile, left half on desktop */}
         <div className="h-[40vh] min-h-[250px] bg-[#0e0f12] sm:h-auto sm:flex-1">
           <div className="relative h-full w-full">
-            <TowerViewer config={towerConfig} />
+            <TowerViewer
+              config={towerConfig}
+              removedParts={removedParts}
+              onRemovePart={(id) => {
+                setRemovedParts((prev) => new Set(prev).add(id));
+              }}
+            />
           </div>
         </div>
 

@@ -5,6 +5,7 @@ import { Canvas, useThree } from "@react-three/fiber";
 import { Environment, Grid, OrbitControls } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { Eye, EyeOff, Focus, RotateCcw } from "lucide-react";
+import { toast } from "sonner";
 
 import type { TowerConfig } from "@/lib/part-types";
 import { ScaffoldTowerMesh } from "@/components/three/ScaffoldTowerMesh";
@@ -27,6 +28,7 @@ function useDebouncedValue<T>(value: T, delay: number): T {
 interface FocusTarget {
   name: string;
   pos: [number, number, number]; // tower coords (Z-up, mm)
+  id?: string; // unique part ID for removal
 }
 
 /**
@@ -93,7 +95,7 @@ function CameraController({
   );
 }
 
-export function TowerViewer({ config }: { config: TowerConfig | null }) {
+export function TowerViewer({ config, onRemovePart, removedParts }: { config: TowerConfig | null; onRemovePart?: (id: string) => void; removedParts?: Set<string> }) {
   const debounced = useDebouncedValue(config, 150);
   const [showGrid, setShowGrid] = useState(true);
   const [focusTarget, setFocusTarget] = useState<FocusTarget | null>(null);
@@ -261,9 +263,11 @@ export function TowerViewer({ config }: { config: TowerConfig | null }) {
             <Suspense fallback={<FallbackCube />}>
               <ScaffoldTowerMesh
                 config={debounced}
-                onPartClick={(name, pos) => {
+                removedParts={removedParts}
+                onPartClick={(name, pos, id) => {
                   setFocusTarget({ name, pos });
                 }}
+                onRemovePart={onRemovePart}
               />
             </Suspense>
           </group>
@@ -293,9 +297,22 @@ export function TowerViewer({ config }: { config: TowerConfig | null }) {
           scale: 1u = {Math.round(1 / scale)} mm · click parts to focus · orbit / scroll to inspect
         </div>
         {focusTarget && (
-          <div className="mt-1.5 flex items-center gap-1 rounded bg-primary/20 px-2 py-1">
+          <div className="mt-1.5 flex items-center gap-2 rounded bg-primary/20 px-2 py-1">
             <Focus className="size-3 text-primary" />
             <span className="font-medium text-primary">{focusTarget.name}</span>
+            {onRemovePart && focusTarget.id && (
+              <button
+                type="button"
+                onClick={() => {
+                  onRemovePart(focusTarget.id!);
+                  toast.success("Part removed", { description: focusTarget.name });
+                  setFocusTarget(null);
+                }}
+                className="ml-1 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-red-700"
+              >
+                Remove
+              </button>
+            )}
           </div>
         )}
       </div>
