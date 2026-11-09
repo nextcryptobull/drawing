@@ -47,10 +47,14 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     base_type = "jack",
     include_gratings = true,
     include_toeboards = true,
+    disabled_platform_levels = [],
+    include_ladder = false,
   } = config as TowerConfig & {
     base_type?: "jack" | "wheel";
     include_gratings?: boolean;
     include_toeboards?: boolean;
+    disabled_platform_levels?: number[];
+    include_ladder?: boolean;
   };
 
   const materials = useMemo(
@@ -587,8 +591,12 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       {/* MULTI-BAY RULE:
           - Only ONE bay (bay i=0, the access bay) has the staggered opening (2/3 filled + 1/3 open)
           - ALL other bays (i=1,2,...) are FULLY filled with gratings (3/3 coverage)
-          - The access bay opening staggers between levels (prevents fall-through) */}
-      {include_gratings && rosetteZs.map((z, levelIdx) => (
+          - The access bay opening staggers between levels (prevents fall-through)
+          - Levels in disabled_platform_levels are skipped (no gratings) */}
+      {include_gratings && rosetteZs.map((z, levelIdx) => {
+        const levelNum = levelIdx + 1;
+        if (disabled_platform_levels.includes(levelNum)) return null;
+        return (
         <group key={`grating-${levelIdx}`}>
           {Array.from({ length: bays_x }).map((_, i) =>
             Array.from({ length: bays_y }).map((_, j) => {
@@ -642,7 +650,8 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
             })
           )}
         </group>
-      ))}
+        );
+      })}
 
       {/* ---- Toeboards per level ---- */}
       {/* Toeboards are low vertical boards around the platform edge to prevent
@@ -805,6 +814,53 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
                 </mesh>
               );
             })()}
+          </group>
+        );
+      })()}
+
+      {/* ---- Ladder (if enabled) ---- */}
+      {/* Ladder runs vertically on the access bay side (+X front of bay 0).
+          Two vertical rails (Ø30mm) + horizontal rungs every 300mm.
+          Goes from ground (z=0) to top platform. */}
+      {include_ladder && (() => {
+        const ladderX = bay_length_x / 2 - towerX / 2 + bay_length_x / 3 * 1.5; // center of access opening
+        const ladderRailR = 15; // Ø30mm
+        const rungSpacing = 300;
+        const rungCount = Math.floor(towerHeight / rungSpacing);
+        const verticalRotation: [number, number, number] = [Math.PI / 2, 0, 0];
+
+        return (
+          <group>
+            {/* Left rail */}
+            <mesh
+              rotation={verticalRotation}
+              position={[ladderX - 150, 0, towerHeight / 2]}
+              material={materials.standard}
+              castShadow
+            >
+              <cylinderGeometry args={[ladderRailR, ladderRailR, towerHeight, 16]} />
+            </mesh>
+            {/* Right rail */}
+            <mesh
+              rotation={verticalRotation}
+              position={[ladderX + 150, 0, towerHeight / 2]}
+              material={materials.standard}
+              castShadow
+            >
+              <cylinderGeometry args={[ladderRailR, ladderRailR, towerHeight, 16]} />
+            </mesh>
+            {/* Rungs */}
+            {Array.from({ length: rungCount }).map((_, ri) => (
+              <mesh
+                key={`rung-${ri}`}
+                position={[ladderX, 0, (ri + 1) * rungSpacing]}
+                rotation={[0, 0, Math.PI / 2]}
+                material={materials.standard}
+                castShadow
+              >
+                <cylinderGeometry args={[8, 8, 300, 8]} />
+              </mesh>
+            ))}
           </group>
         );
       })()}

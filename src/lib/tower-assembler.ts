@@ -34,6 +34,10 @@ export interface BayConfig {
   include_toeboards: boolean;
   /** Include diagonal braces */
   include_braces: boolean;
+  /** Which levels have platforms (1-indexed). Empty = all levels. */
+  disabled_platform_levels: number[];
+  /** Include ladder on access side */
+  include_ladder: boolean;
 }
 
 export interface PartsBom {
@@ -252,6 +256,8 @@ export function assembleTower(
     include_gratings: overrides?.include_gratings ?? true,
     include_toeboards: overrides?.include_toeboards ?? true,
     include_braces: overrides?.include_braces ?? true,
+    disabled_platform_levels: overrides?.disabled_platform_levels ?? [],
+    include_ladder: overrides?.include_ladder ?? false,
   };
 
   // Calculate actual dimensions (may differ from requested due to standard bay sizes)
@@ -303,8 +309,10 @@ export function assembleTower(
   const planks = bayX.count * bayY.count;
 
   // Gratings: access bay (i=0) = 2 per level, other bays = 3 per level (fully filled)
-  const accessBayGratings = config.include_gratings ? bayY.count * numLifts * 2 : 0;
-  const otherBayGratings = config.include_gratings ? Math.max(0, bayX.count - 1) * bayY.count * numLifts * 3 : 0;
+  // Skip disabled platform levels
+  const enabledLevels = numLifts - config.disabled_platform_levels.length;
+  const accessBayGratings = config.include_gratings ? bayY.count * enabledLevels * 2 : 0;
+  const otherBayGratings = config.include_gratings ? Math.max(0, bayX.count - 1) * bayY.count * enabledLevels * 3 : 0;
   const gratings = accessBayGratings + otherBayGratings;
 
   // Toeboards: 3 sides per level
@@ -478,6 +486,24 @@ export function assembleTower(
     });
   }
 
+  // LADDER (if enabled)
+  if (config.include_ladder) {
+    // Ladder = 2 vertical rails (Ø30mm × tower height) + rungs every 300mm
+    const ladderRungCount = Math.floor(towerHeightTotal / 300);
+    const ladderRailWeight = (towerHeightTotal / 1000) * 1.7 * 2; // 2 rails, Ø30mm ≈ 1.7 kg/m
+    const ladderRungWeight = ladderRungCount * 0.3; // each rung ≈ 0.3 kg
+    const totalW = ladderRailWeight + ladderRungWeight;
+    totalWeight += totalW;
+    details.push({
+      part_type: "Ladder",
+      description: `Ladder (${ladderRungCount} rungs, 2 rails Ø30mm)`,
+      size: `${towerHeightTotal}mm`,
+      quantity: 1,
+      unit_weight_kg: Math.round(totalW * 100) / 100,
+      total_weight_kg: Math.round(totalW * 100) / 100,
+    });
+  }
+
   const estimatedWeight = Math.round(totalWeight);
 
   const bom: PartsBom = {
@@ -539,6 +565,8 @@ export function assemblyToTowerConfig(result: AssemblyResult) {
     include_gratings: result.config.include_gratings,
     include_toeboards: result.config.include_toeboards,
     base_type: result.config.base_type,
+    disabled_platform_levels: result.config.disabled_platform_levels,
+    include_ladder: result.config.include_ladder,
   };
 }
 

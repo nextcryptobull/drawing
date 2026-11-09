@@ -399,6 +399,37 @@ export function TowerAssembler() {
                             checked={result.config.include_braces}
                             onChange={(v) => updateFromConfig({ include_braces: v })}
                           />
+
+                          {/* Divider */}
+                          <div className="border-t pt-2" />
+
+                          {/* Per-level platform toggles */}
+                          <div className="text-xs font-medium text-muted-foreground">Platform levels</div>
+                          {Array.from({ length: result.config.num_lifts }).map((_, idx) => {
+                            const levelNum = idx + 1;
+                            const isDisabled = result.config.disabled_platform_levels.includes(levelNum);
+                            return (
+                              <ToggleRow
+                                key={`platform-L${levelNum}`}
+                                label={`Platform at L${levelNum} (${(levelNum * result.config.lift_height / 1000).toFixed(1)}m)`}
+                                checked={!isDisabled}
+                                onChange={(v) => {
+                                  const current = result.config.disabled_platform_levels;
+                                  const newDisabled = v
+                                    ? current.filter(l => l !== levelNum)
+                                    : [...current, levelNum];
+                                  updateFromConfig({ disabled_platform_levels: newDisabled });
+                                }}
+                              />
+                            );
+                          })}
+
+                          {/* Ladder toggle */}
+                          <ToggleRow
+                            label="Ladder (access side)"
+                            checked={result.config.include_ladder}
+                            onChange={(v) => updateFromConfig({ include_ladder: v })}
+                          />
                         </CardContent>
                       </Card>
 
