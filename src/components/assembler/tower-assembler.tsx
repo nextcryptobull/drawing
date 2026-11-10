@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
 import {
@@ -210,13 +210,25 @@ export function TowerAssembler() {
                         </Label>
                         <div className="flex flex-wrap gap-1.5">
                           {TOWER_PRESETS.map((preset) => (
-                            <TooltipProvider key={preset.input} delayDuration={150}>
+                            <TooltipProvider key={preset.label} delayDuration={150}>
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <Button
                                     variant="outline"
                                     size="sm"
-                                    onClick={() => setInput(preset.input)}
+                                    onClick={() => {
+                                      setInput(preset.input);
+                                      const p = preset as { sections?: Array<{ bays: number; bay_length: number }> };
+                                      if (p.sections && p.sections.length > 0) {
+                                        setOverrides({ sections: p.sections });
+                                      } else {
+                                        setOverrides((prev) => {
+                                          const { sections: _omit, ...rest } = prev;
+                                          void _omit;
+                                          return rest;
+                                        });
+                                      }
+                                    }}
                                     className={cn(
                                       "h-auto py-1 text-xs",
                                       input === preset.input && "border-primary bg-accent",
@@ -305,14 +317,94 @@ export function TowerAssembler() {
                           </CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-3">
-                          {/* Bays X */}
-                          <StepperRow
-                            label="Bays in X (length)"
-                            value={result.config.bays_x}
-                            min={1}
-                            max={50}
-                            onChange={(v) => updateFromConfig({ bays_x: v })}
-                          />
+                          {/* Bays X / Bay length X — OR sections editor */}
+                          {overrides.sections && overrides.sections.length > 0 ? (
+                            <div className="space-y-2">
+                              {overrides.sections.map((sec, idx) => (
+                                <div key={idx} className={cn("flex items-center gap-2 rounded border p-2",
+                                  idx === 0 ? "border-yellow-500/40 bg-yellow-500/5" : "border-border")}>
+                                  <div className="flex-1 space-y-1">
+                                    <div className="flex items-center gap-1.5">
+                                      {idx === 0 ? (
+                                        <span className="rounded bg-yellow-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-700 dark:text-yellow-400">ACCESS</span>
+                                      ) : (
+                                        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">FILLER {idx}</span>
+                                      )}
+                                      <span className="text-[10px] text-muted-foreground">{sec.bays}×{(sec.bay_length / 1000).toFixed(2)}m</span>
+                                    </div>
+                                    <StepperRow label="Bays" value={sec.bays} min={1} max={50}
+                                      onChange={(v) => { const secs = [...overrides.sections!]; secs[idx] = { ...secs[idx], bays: v }; updateFromConfig({ sections: secs }); }} />
+                                    <StepperRow label="Bay length (mm)" value={sec.bay_length} min={1000} max={3000} step={500}
+                                      onChange={(v) => { const secs = [...overrides.sections!]; secs[idx] = { ...secs[idx], bay_length: v }; updateFromConfig({ sections: secs }); }} />
+                                  </div>
+                                  <Button variant="ghost" size="sm" className="size-7 shrink-0 p-0 text-red-500 hover:bg-red-500/10"
+                                    onClick={() => { const secs = overrides.sections!.filter((_, i) => i !== idx); updateFromConfig({ sections: secs.length > 0 ? secs : undefined }); }}
+                                    disabled={overrides.sections!.length <= 1}>
+                                    <Minus className="size-3" />
+                                  </Button>
+                                </div>
+                              ))}
+
+                              {/* Quick-add filler buttons */}
+                              <div className="flex flex-wrap gap-1.5 pt-1">
+                                <span className="self-center text-[10px] text-muted-foreground">Add filler:</span>
+                                {[
+                                  { label: "+3m", len: 3000 },
+                                  { label: "+4m", len: 3070 },
+                                  { label: "+6m", len: 5640 },
+                                ].map((preset) => (
+                                  <Button key={preset.label} variant="outline" size="sm" className="h-7 px-2 text-xs"
+                                    onClick={() => { const secs = [...overrides.sections!, { bays: 1, bay_length: preset.len }]; updateFromConfig({ sections: secs }); }}>
+                                    {preset.label}
+                                  </Button>
+                                ))}
+                                <Button variant="outline" size="sm" className="h-7 px-2 text-xs"
+                                  onClick={() => { const secs = [...overrides.sections!, { bays: 1, bay_length: 2570 }]; updateFromConfig({ sections: secs }); }}>
+                                  <Plus className="mr-0.5 size-3" /> Custom
+                                </Button>
+                              </div>
+
+                              <div className="flex items-center justify-between border-t pt-2">
+                                <span className="text-xs text-muted-foreground">
+                                  Total: {overrides.sections.reduce((s, sec) => s + sec.bays, 0)} bays ·{" "}
+                                  {(overrides.sections.reduce((s, sec) => s + sec.bays * sec.bay_length, 0) / 1000).toFixed(2)}m
+                                </span>
+                                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground"
+                                  onClick={() => { setOverrides((prev) => { const { sections: _s, ...rest } = prev; void _s; return rest; }); }}>
+                                  Reset to single
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              {/* Bays X */}
+                              <StepperRow
+                                label="Bays in X (length)"
+                                value={result.config.bays_x}
+                                min={1}
+                                max={50}
+                                onChange={(v) => updateFromConfig({ bays_x: v })}
+                              />
+                              {/* Bay length X */}
+                              <StepperRow
+                                label="Bay length X (mm)"
+                                value={result.config.bay_length_x}
+                                min={1000}
+                                max={3000}
+                                step={500}
+                                onChange={(v) => updateFromConfig({ bay_length_x: v })}
+                              />
+                            </>
+                          )}
+
+                          {/* Button to switch to sections mode */}
+                          {(!overrides.sections || overrides.sections.length === 0) && (
+                            <Button variant="outline" size="sm" className="h-7 w-full text-xs"
+                              onClick={() => updateFromConfig({ sections: [{ bays: result.config.bays_x, bay_length: result.config.bay_length_x }] })}>
+                              Use mixed sections
+                            </Button>
+                          )}
+
                           {/* Bays Y */}
                           <StepperRow
                             label="Bays in Y (width)"
@@ -329,22 +421,13 @@ export function TowerAssembler() {
                             max={30}
                             onChange={(v) => updateFromConfig({ num_lifts: v })}
                           />
-                          {/* Bay length X */}
-                          <StepperRow
-                            label="Bay length X (mm)"
-                            value={result.config.bay_length_x}
-                            min={1090}
-                            max={3070}
-                            step={500}
-                            onChange={(v) => updateFromConfig({ bay_length_x: v })}
-                          />
                           {/* Bay length Y */}
                           <StepperRow
                             label="Bay length Y (mm)"
                             value={result.config.bay_length_y}
-                            min={1090}
-                            max={1570}
-                            step={100}
+                            min={1000}
+                            max={3000}
+                            step={500}
                             onChange={(v) => updateFromConfig({ bay_length_y: v })}
                           />
                           {/* Lift height */}
@@ -379,6 +462,29 @@ export function TowerAssembler() {
                                 onClick={() => updateFromConfig({ base_type: "wheel" })}
                               >
                                 Wheel
+                              </Button>
+                            </div>
+                          </div>
+
+                          {/* Plank width toggle: 320 (heavy-duty) / 230 (light) */}
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs text-muted-foreground">Plank width</span>
+                            <div className="flex gap-1">
+                              <Button
+                                variant={result.config.plank_width === 320 ? "default" : "outline"}
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => updateFromConfig({ plank_width: 320 })}
+                              >
+                                320 mm
+                              </Button>
+                              <Button
+                                variant={result.config.plank_width === 230 ? "default" : "outline"}
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => updateFromConfig({ plank_width: 230 })}
+                              >
+                                230 mm
                               </Button>
                             </div>
                           </div>
@@ -424,11 +530,25 @@ export function TowerAssembler() {
                             );
                           })}
 
-                          {/* Ladder toggle */}
+                          {/* Ladder toggle (primary, yellow, inside access bay) */}
                           <ToggleRow
                             label="Ladder (access side)"
                             checked={result.config.include_ladder}
                             onChange={(v) => updateFromConfig({ include_ladder: v })}
+                          />
+
+                          {/* Secondary access toggle (auto at ≥20m height/length) */}
+                          <ToggleRow
+                            label={(() => {
+                              const h = result.config.num_lifts * result.config.lift_height;
+                              const len = result.config.bays_x * result.config.bay_length_x;
+                              if (h >= 20000 && len >= 20000) return "Secondary access (auto: height+length ≥20m)";
+                              if (h >= 20000) return "Secondary access (auto: height ≥20m)";
+                              if (len >= 20000) return "Secondary access (auto: length ≥20m)";
+                              return "Secondary access (escape ladder)";
+                            })()}
+                            checked={result.config.secondary_access}
+                            onChange={(v) => updateFromConfig({ secondary_access: v })}
                           />
                         </CardContent>
                       </Card>
@@ -600,6 +720,8 @@ function triggerDownload(blob: Blob, fileName: string): void {
 
 /* -------------------------------------------------------------------------- */
 /* Stepper row — +/- buttons to adjust a numeric value                       */
+/* The value is also an editable numeric input: focus to type a value, Enter  */
+/* or blur to commit, Escape to revert.                                       */
 /* -------------------------------------------------------------------------- */
 
 function StepperRow({
@@ -617,9 +739,40 @@ function StepperRow({
   step?: number;
   onChange: (value: number) => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(String(value));
   const clamp = (v: number) => Math.min(Math.max(v, min), max);
+
+  // Sync draft when value changes externally (e.g. +/- buttons or preset).
+  useEffect(() => {
+    if (!editing) setDraft(String(value));
+  }, [value, editing]);
+
   const dec = () => onChange(clamp(value - step));
   const inc = () => onChange(clamp(value + step));
+
+  const commit = () => {
+    const parsed = parseInt(draft, 10);
+    if (!isNaN(parsed)) {
+      onChange(clamp(parsed));
+    } else {
+      // Revert if invalid
+      setDraft(String(value));
+    }
+    setEditing(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commit();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setDraft(String(value));
+      setEditing(false);
+      (e.target as HTMLInputElement).blur();
+    }
+  };
 
   return (
     <div className="flex items-center justify-between gap-2">
@@ -634,9 +787,21 @@ function StepperRow({
         >
           <Minus className="size-3" />
         </Button>
-        <span className="min-w-[3rem] text-center font-mono text-sm font-semibold">
-          {value}
-        </span>
+        <input
+          type="number"
+          value={editing ? draft : value}
+          min={min}
+          max={max}
+          step={step}
+          onFocus={() => {
+            setEditing(true);
+            setDraft(String(value));
+          }}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={handleKeyDown}
+          className="min-w-[3rem] w-14 rounded border border-transparent bg-transparent text-center font-mono text-sm font-semibold outline-none hover:border-border focus:border-primary focus:bg-background"
+        />
         <Button
           variant="outline"
           size="sm"

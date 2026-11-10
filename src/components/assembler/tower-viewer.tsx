@@ -2,9 +2,9 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useThree } from "@react-three/fiber";
-import { Environment, Grid, OrbitControls } from "@react-three/drei";
+import { Environment, Grid, GizmoHelper, GizmoViewport, OrbitControls } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import { Eye, EyeOff, Focus, RotateCcw } from "lucide-react";
+import { Eye, EyeOff, Focus, Maximize2 } from "lucide-react";
 import { toast } from "sonner";
 
 import type { TowerConfig } from "@/lib/part-types";
@@ -41,12 +41,14 @@ function CameraController({
   scale,
   defaultCamPos,
   defaultTarget,
+  camDist,
 }: {
   focusTarget: FocusTarget | null;
   resetCounter: number;
   scale: number;
   defaultCamPos: [number, number, number];
   defaultTarget: [number, number, number];
+  camDist: number;
 }) {
   const { camera } = useThree();
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
@@ -73,7 +75,7 @@ function CameraController({
     const worldZ = -ty * scale; // old Y → new Z (depth, negated)
 
     // Move camera to be close to the target, slightly offset
-    const focusDist = 3; // close-up distance
+    const focusDist = Math.max(camDist * 0.15, 1.5); // close-up distance, scales with tower
     camera.position.set(
       worldX + focusDist * 0.5,
       worldY + focusDist * 0.3,
@@ -81,15 +83,15 @@ function CameraController({
     );
     controlsRef.current.target.set(worldX, worldY, worldZ);
     controlsRef.current.update();
-  }, [focusTarget, scale, camera]);
+  }, [focusTarget, scale, camera, camDist]);
 
   return (
     <OrbitControls
       ref={controlsRef as never}
       enableDamping
       dampingFactor={0.08}
-      minDistance={1}
-      maxDistance={50}
+      minDistance={Math.max(camDist * 0.05, 0.5)}
+      maxDistance={camDist * 6}
       maxPolarAngle={Math.PI * 0.49}
     />
   );
@@ -100,20 +102,41 @@ export function TowerViewer({ config, onRemovePart, removedParts }: { config: To
   const [showGrid, setShowGrid] = useState(true);
   const [focusTarget, setFocusTarget] = useState<FocusTarget | null>(null);
   const [resetCounter, setResetCounter] = useState(0);
+  const lastCamSig = useRef<string | null>(null);
 
+  // Frame: tower bounding box in TOWER coords (mm). Returns absolute Z extents
+  // (bottomZ, topZ) plus centerZ so the camera can frame the WHOLE tower
+  // including base jacks/wheels and the handrails above the top platform.
   const frame = useMemo(() => {
-    if (!debounced) return { radius: 200, height: 200, centerZ: 100 };
+    if (!debounced) {
+      return { radius: 200, height: 200, centerZ: 100, bottomZ: 0, topZ: 200, towerX: 0, towerY: 0 };
+    }
     const t = debounced;
-    const tw = t.bays_x * t.bay_length_x;
-    const td = t.bays_y * t.bay_length_y;
-    const bottomZ = t.include_base_jacks || (t as { base_type?: string }).base_type === "jack" ? -t.base_jack_length : 0;
-    const topZ = t.num_lifts * t.lift_height + t.spigot_length;
-    const th = topZ - bottomZ;
-    const r = Math.sqrt(tw * tw + td * td) / 2;
+    const sections = (t as { sections?: Array<{ bays: number; bay_length: number }> }).sections;
+    const towerX = sections && sections.length > 0
+      ? sections.reduce((s, sec) => s + sec.bays * sec.bay_length, 0)
+      : t.bays_x * t.bay_length_x;
+    const towerY = t.bays_y * t.bay_length_y;
+
+    // bottomZ: -320 if wheel base, else -base_jack_length if jack, else 0
+    const baseType = (t as { base_type?: string }).base_type;
+    const isWheel = baseType === "wheel";
+    const isJack = t.include_base_jacks || baseType === "jack" || baseType === undefined;
+    const bottomZ = isWheel ? -320 : (isJack ? -t.base_jack_length : 0);
+
+    // topZ: lift_height × num_lifts + spigot + plank (if any) + 1000 (handrails)
+    const topZ = t.num_lifts * t.lift_height + t.spigot_length + (t.include_planks ? t.plank_thickness : 0) + 1000;
+
+    const height = topZ - bottomZ;
+    const r = Math.sqrt(towerX * towerX + towerY * towerY) / 2;
     return {
       radius: Math.max(r, 200),
-      height: Math.max(th, 200),
+      height,
       centerZ: (topZ + bottomZ) / 2,
+      bottomZ,
+      topZ,
+      towerX,
+      towerY,
     };
   }, [debounced]);
 
@@ -128,15 +151,43 @@ export function TowerViewer({ config, onRemovePart, removedParts }: { config: To
     );
   }
 
-  const towerHeightScaled = frame.height * scale;
-  const towerRadiusScaled = frame.radius * scale;
-  const camDist = Math.max(towerHeightScaled * 1.2, towerRadiusScaled * 3, 12);
+  // ─── Camera positioning (after the early-return for !debounced) ────────
+  // World axes: tower X → world X, tower Z → world Y (up), tower Y → world -Z.
+  // So world-X bounds = towerX, world-Y bounds = height, world-Z bounds = towerY.
+  const boundsX = frame.towerX * scale;
+  const boundsZ = frame.towerY * scale;
+  const boundsY = frame.height * scale;
+  const diag = Math.sqrt(boundsX ** 2 + boundsY ** 2 + boundsZ ** 2);
+  const halfDiag = diag / 2;
+  // sin(22.5°) ≈ 0.383, 30% padding so tower never touches edges
+  const camDist = Math.max((halfDiag / 0.383) * 1.3, 4);
+  const centerWorldY = frame.centerZ * scale;
+  const baseWorldY = frame.bottomZ * scale;
+  const elevation = 8 * (Math.PI / 180); // ~8° for proper vertical centering
+  const azimuth = 40 * (Math.PI / 180);
+  const horiz = camDist * Math.cos(elevation);
   const defaultCamPos: [number, number, number] = [
-    camDist * 0.7,
-    towerHeightScaled * 0.6 + camDist * 0.3,
-    camDist * 0.7,
+    horiz * Math.cos(azimuth),
+    centerWorldY + camDist * Math.sin(elevation),
+    horiz * Math.sin(azimuth),
   ];
-  const defaultTarget: [number, number, number] = [0, towerHeightScaled * 0.5, 0];
+  const defaultTarget: [number, number, number] = [0, centerWorldY, 0];
+
+  // Auto-reframe when scaffold dimensions change. Serialize the cam pos/target
+  // to 3 decimal places so trivial floating-point drift doesn't trigger a
+  // reframe. Only re-apply when the signature actually changes.
+  const camSig = useMemo(() => {
+    return JSON.stringify([
+      defaultCamPos.map((v) => Math.round(v * 1000) / 1000),
+      defaultTarget.map((v) => Math.round(v * 1000) / 1000),
+    ]);
+  }, [defaultCamPos, defaultTarget]);
+
+  useEffect(() => {
+    if (lastCamSig.current === camSig) return;
+    lastCamSig.current = camSig;
+    setResetCounter((c) => c + 1);
+  }, [camSig]);
 
   return (
     <div className="relative h-full w-full">
@@ -147,10 +198,10 @@ export function TowerViewer({ config, onRemovePart, removedParts }: { config: To
           size="sm"
           onClick={() => setResetCounter((c) => c + 1)}
           className="bg-black/60 text-white/90 hover:bg-black/80"
-          title="Reset camera view"
+          title="Fit camera to the whole scaffold"
         >
-          <RotateCcw className="mr-1.5 size-3.5" />
-          Reset View
+          <Maximize2 className="mr-1.5 size-3.5" />
+          Fit View
         </Button>
         <Button
           variant="secondary"
@@ -211,6 +262,42 @@ export function TowerViewer({ config, onRemovePart, removedParts }: { config: To
             <Focus className="mr-1 size-3" />
             Handrails
           </Button>
+
+          {/* Ladder 1 focus button — shown only when primary ladder is enabled */}
+          {(debounced as { include_ladder?: boolean }).include_ladder && (() => {
+            const tX = debounced.bays_x * debounced.bay_length_x;
+            const tY = debounced.bays_y * debounced.bay_length_y;
+            const tH = debounced.num_lifts * debounced.lift_height;
+            return (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setFocusTarget({ name: "Primary ladder", pos: [-tX / 2 + debounced.bay_length_x / 2, tY / 2 - 80, tH / 2] })}
+                className="bg-yellow-600/70 text-white hover:bg-yellow-600"
+              >
+                <Focus className="mr-1 size-3" />
+                Ladder 1
+              </Button>
+            );
+          })()}
+
+          {/* Ladder 2 focus button — shown only when secondary access is enabled */}
+          {(debounced as { secondary_access?: boolean }).secondary_access && (() => {
+            const tX = debounced.bays_x * debounced.bay_length_x;
+            const tY = debounced.bays_y * debounced.bay_length_y;
+            const tH = debounced.num_lifts * debounced.lift_height;
+            return (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setFocusTarget({ name: "Secondary ladder (escape)", pos: [tX / 2 - debounced.bay_length_x / 2, -(tY / 2 - 80), tH / 2] })}
+                className="bg-orange-600/70 text-white hover:bg-orange-600"
+              >
+                <Focus className="mr-1 size-3" />
+                Ladder 2
+              </Button>
+            );
+          })()}
         </div>
       )}
 
@@ -241,10 +328,11 @@ export function TowerViewer({ config, onRemovePart, removedParts }: { config: To
           <Environment preset="warehouse" />
         </Suspense>
 
+        {/* Grid — positioned at scaffold base so the tower sits ON the grid */}
         {showGrid && (
           <Grid
-            args={[40, 40]}
-            position={[0, 0, 0]}
+            args={[Math.max(boundsX * 4, 40), Math.max(boundsZ * 4, 40)]}
+            position={[0, baseWorldY, 0]}
             cellSize={0.5}
             cellThickness={0.6}
             cellColor="#3a3a42"
@@ -273,14 +361,20 @@ export function TowerViewer({ config, onRemovePart, removedParts }: { config: To
           </group>
         </group>
 
-        {/* Camera controller — handles focus + reset */}
+        {/* Camera controller — handles focus + reset, with camDist-aware min/max zoom */}
         <CameraController
           focusTarget={focusTarget}
           resetCounter={resetCounter}
           scale={scale}
           defaultCamPos={defaultCamPos}
           defaultTarget={defaultTarget}
+          camDist={camDist}
         />
+
+        {/* Axis gizmo — bottom-right corner */}
+        <GizmoHelper alignment="bottom-right" margin={[64, 64]}>
+          <GizmoViewport axisColors={["#ff6b6b", "#3ddc97", "#5d9ce8"]} labelColor="white" />
+        </GizmoHelper>
       </Canvas>
 
       {/* Overlay: dimensions + focused part */}

@@ -38,6 +38,12 @@ export interface BayConfig {
   disabled_platform_levels: number[];
   /** Include ladder on access side */
   include_ladder: boolean;
+  /** Plank width: 320mm (heavy-duty) or 230mm (light) */
+  plank_width: 320 | 230;
+  /** Secondary access ladder (auto at >=20m height or length) */
+  secondary_access: boolean;
+  /** Optional mixed sections (overrides bays_x/bay_length_x) */
+  sections?: Array<{ bays: number; bay_length: number }>;
 }
 
 export interface PartsBom {
@@ -81,7 +87,7 @@ export interface AssemblyResult {
  * These are the common industry sizes — the parser picks the closest.
  */
 const STANDARD_BAY_LENGTHS = [1090, 1570, 2070, 2570, 3070];
-const STANDARD_BAY_WIDTHS = [1090, 1400, 1520, 1570];
+const STANDARD_BAY_WIDTHS = [1090, 1400, 1520, 1570, 2000, 2500];
 const STANDARD_LIFT_HEIGHTS = [1000, 1500, 2000, 2500];
 
 /**
@@ -117,15 +123,76 @@ const LEDGER_WEIGHTS: Record<number, number> = {
 };
 
 /**
- * Standard steel plank weights (kg, 320mm wide) — from wm-scaffold catalog.
+ * Steel plank weights (kg) by plank width — from wm-scaffold catalog.
+ * Two width variants: 320mm (heavy-duty) and 230mm (light).
  */
-const PLANK_WEIGHTS: Record<number, number> = {
+const PLANK_WEIGHTS_320: Record<number, number> = {
   1090: 11.50,
   1570: 15.60,
   2070: 19.36,
   2570: 23.13,
   3070: 26.89,
 };
+
+const PLANK_WEIGHTS_230: Record<number, number> = {
+  1090: 8.80,
+  1570: 11.85,
+  2070: 14.90,
+  2570: 18.00,
+  3070: 21.10,
+};
+
+function plankWeightTable(width: 320 | 230): Record<number, number> {
+  return width === 320 ? PLANK_WEIGHTS_320 : PLANK_WEIGHTS_230;
+}
+
+function plankKgPerM(width: 320 | 230): number {
+  return width === 320 ? 8.5 : 6.4;
+}
+
+function plankEndWeight(width: 320 | 230): number {
+  return width === 320 ? 2.3 : 1.8;
+}
+
+/**
+ * Layout description for a tower built from mixed sections.
+ * - standardXs has length totalBays + 1 (standards at both ends of each bay,
+ *   shared at section boundaries).
+ * - bayCenters and bayLengths have length totalBays.
+ */
+export interface SectionLayout {
+  totalBays: number;
+  totalLength: number;
+  standardXs: number[];
+  bayCenters: number[];
+  bayLengths: number[];
+}
+
+/**
+ * Compute layout (standard positions, bay centers, bay lengths) for a tower
+ * built from one or more sections. Standards are shared at section boundaries,
+ * so the total standards in X = totalBays + 1.
+ */
+export function computeSectionLayout(
+  sections: Array<{ bays: number; bay_length: number }>
+): SectionLayout {
+  const totalBays = sections.reduce((sum, s) => sum + s.bays, 0);
+  const totalLength = sections.reduce((sum, s) => sum + s.bays * s.bay_length, 0);
+  const standardXs: number[] = [];
+  const bayCenters: number[] = [];
+  const bayLengths: number[] = [];
+  let x = -totalLength / 2;
+  for (const section of sections) {
+    for (let i = 0; i < section.bays; i++) {
+      standardXs.push(x);
+      bayLengths.push(section.bay_length);
+      bayCenters.push(x + section.bay_length / 2);
+      x += section.bay_length;
+    }
+  }
+  standardXs.push(x); // last standard
+  return { totalBays, totalLength, standardXs, bayCenters, bayLengths };
+}
 
 /**
  * Split a total height into standard ringlock standard lengths.
@@ -231,19 +298,59 @@ export function assembleTower(
 ): AssemblyResult {
   const warnings: string[] = [];
 
-  // Calculate bay configuration — use overrides if provided, otherwise calculate
-  // For bays_x: use override count if set, but keep the bay_length from input or override
-  const bayX = overrides?.bays_x != null
-    ? { count: overrides.bays_x, size: overrides?.bay_length_x ?? closestStandard(input.requestedLength, STANDARD_BAY_LENGTHS) }
-    : calculateBays(input.requestedLength, STANDARD_BAY_LENGTHS);
-  const bayY = overrides?.bays_y != null
-    ? { count: overrides.bays_y, size: overrides?.bay_length_y ?? closestStandard(input.requestedWidth, STANDARD_BAY_WIDTHS) }
-    : calculateBays(input.requestedWidth, STANDARD_BAY_WIDTHS);
+  // Sections override takes precedence over bay_length_x / bays_x.
+  const sections = overrides?.sections && overrides.sections.length > 0 ? overrides.sections : undefined;
+
+  // Calculate bay configuration along X.
+  // - When `sections` is provided: bayX.count = total bays across all
+  //   sections, bayX.size = average bay length (for display only), and the
+  //   real length is the sum of (bays × bay_length) per section.
+  // - Otherwise, respect bay_length_x and bays_x overrides independently
+  //   (so each can be tweaked without resetting the other).
+  let bayX: { count: number; size: number };
+  let actualLength: number;
+  if (sections) {
+    const totalBays = sections.reduce((s, sec) => s + sec.bays, 0);
+    const totalLen = sections.reduce((s, sec) => s + sec.bays * sec.bay_length, 0);
+    bayX = { count: totalBays, size: Math.round(totalLen / totalBays) };
+    actualLength = totalLen;
+  } else if (overrides?.bay_length_x != null) {
+    const cnt = overrides?.bays_x ?? Math.max(1, Math.round(input.requestedLength / overrides.bay_length_x));
+    bayX = { count: cnt, size: overrides.bay_length_x };
+    actualLength = cnt * overrides.bay_length_x;
+  } else if (overrides?.bays_x != null) {
+    bayX = { count: overrides.bays_x, size: closestStandard(input.requestedLength, STANDARD_BAY_LENGTHS) };
+    actualLength = bayX.count * bayX.size;
+  } else {
+    bayX = calculateBays(input.requestedLength, STANDARD_BAY_LENGTHS);
+    actualLength = bayX.count * bayX.size;
+  }
+
+  // Same pattern for bayY — bay_length_y override is now respected
+  // independently of bays_y.
+  let bayY: { count: number; size: number };
+  if (overrides?.bay_length_y != null) {
+    const cnt = overrides?.bays_y ?? Math.max(1, Math.round(input.requestedWidth / overrides.bay_length_y));
+    bayY = { count: cnt, size: overrides.bay_length_y };
+  } else if (overrides?.bays_y != null) {
+    bayY = { count: overrides.bays_y, size: closestStandard(input.requestedWidth, STANDARD_BAY_WIDTHS) };
+  } else {
+    bayY = calculateBays(input.requestedWidth, STANDARD_BAY_WIDTHS);
+  }
+
   const liftHeight = overrides?.lift_height ?? closestStandard(
     Math.min(input.requestedHeight, 2000),
     STANDARD_LIFT_HEIGHTS
   );
   const numLifts = overrides?.num_lifts ?? Math.max(1, Math.round(input.requestedHeight / liftHeight));
+
+  const actualWidth = bayY.count * bayY.size;
+  const actualHeight = numLifts * liftHeight;
+
+  // Secondary access auto-triggers at ≥20m height OR ≥20m length.
+  const secondary_access =
+    overrides?.secondary_access ??
+    (numLifts * liftHeight >= 20000 || actualLength >= 20000);
 
   const config: BayConfig = {
     bays_x: bayX.count,
@@ -258,19 +365,17 @@ export function assembleTower(
     include_braces: overrides?.include_braces ?? true,
     disabled_platform_levels: overrides?.disabled_platform_levels ?? [],
     include_ladder: overrides?.include_ladder ?? false,
+    plank_width: overrides?.plank_width ?? 320,
+    secondary_access,
+    sections,
   };
-
-  // Calculate actual dimensions (may differ from requested due to standard bay sizes)
-  const actualLength = bayX.count * bayX.size;
-  const actualWidth = bayY.count * bayY.size;
-  const actualHeight = numLifts * liftHeight;
 
   // Warn if actual differs significantly from requested
   const lengthDiff = Math.abs(actualLength - input.requestedLength);
   const widthDiff = Math.abs(actualWidth - input.requestedWidth);
   const heightDiff = Math.abs(actualHeight - input.requestedHeight);
 
-  if (lengthDiff > 200) {
+  if (!sections && lengthDiff > 200) {
     warnings.push(
       `Length adjusted from ${input.requestedLength}mm to ${actualLength}mm (standard bay size ${bayX.size}mm × ${bayX.count} bays)`
     );
@@ -286,34 +391,79 @@ export function assembleTower(
     );
   }
 
-  // Calculate BOM — using STANDARD ringlock part sizes
+  // ─── BUILD PART COUNTS ───
+  // For sections, numStandards in X = totalBays + 1 (standards shared at
+  // section boundaries). For uniform bays, (bayX.count + 1). Same number.
   const numStandards = (bayX.count + 1) * (bayY.count + 1);
   const rosettesPerStandard = numLifts;
   const rosettes = numStandards * rosettesPerStandard;
 
-  // Ledgers
-  const ledgersXPerLevel = (bayX.count) * (bayY.count + 1);
-  const ledgersYPerLevel = (bayX.count + 1) * (bayY.count);
-  // Reinforcing ledgers at basement level (same count as one lift level)
-  const basementLedgers = ledgersXPerLevel + ledgersYPerLevel;
-  const ledgers = (ledgersXPerLevel + ledgersYPerLevel) * numLifts + basementLedgers;
+  // Group bays along X by bay_length (for sections, multiple lengths).
+  // For uniform bays, the group is just { [bayX.size]: bayX.count }.
+  const bayLengthGroupsX: Record<number, number> = {};
+  if (sections) {
+    for (const sec of sections) {
+      bayLengthGroupsX[sec.bay_length] = (bayLengthGroupsX[sec.bay_length] ?? 0) + sec.bays;
+    }
+  } else {
+    bayLengthGroupsX[bayX.size] = bayX.count;
+  }
 
-  // Braces
-  const perimeterFaces = 2 * (bayX.count + bayY.count);
-  const braces = config.include_braces ? perimeterFaces * numLifts : 0;
+  // Y-ledgers per level: (bayX.count + 1) standards in X × bayY.count bays in Y
+  const ledgersYPerLevel = (bayX.count + 1) * bayY.count;
+
+  // Total X-ledgers across all lift levels + basement
+  let ledgersXTotal = 0;
+  for (const numBays of Object.values(bayLengthGroupsX)) {
+    ledgersXTotal += numBays * (bayY.count + 1) * (numLifts + 1);
+  }
+  const ledgersYTotal = ledgersYPerLevel * (numLifts + 1);
+  const ledgers = ledgersXTotal + ledgersYTotal;
+
+  // Braces — per bay_length group. Each bay_length from X sections + bay_length_y
+  // gets its own BOM entry. Face count for X-bayLen = 2 × baysWithThisXLength;
+  // for Y-bayLen = 2 × bayY.count. Brace qty = faceCount × numLifts.
+  const braceGroups: { bayLength: number; faceCount: number }[] = [];
+  let totalBraces = 0;
+  for (const [lenStr, numBays] of Object.entries(bayLengthGroupsX)) {
+    const faceCount = 2 * numBays; // front + back of each X-bay
+    braceGroups.push({ bayLength: parseInt(lenStr), faceCount });
+    totalBraces += faceCount * numLifts;
+  }
+  if (config.include_braces) {
+    const yFaceCount = 2 * bayY.count; // left + right ends of the tower
+    braceGroups.push({ bayLength: bayY.size, faceCount: yFaceCount });
+    totalBraces += yFaceCount * numLifts;
+  }
+  const braces = config.include_braces ? totalBraces : 0;
 
   // Base jacks or wheels
   const baseJacks = numStandards;
 
-  // Planks
-  const planks = bayX.count * bayY.count;
-
-  // Gratings: access bay (i=0) = 2 per level, other bays = 3 per level (fully filled)
-  // Skip disabled platform levels
+  // Gratings count — planksPerBay = floor(bay_length / plank_width).
+  // Access bay (i=0) gets planksPerBay - 1 (one row open for ladder).
+  // Other bays get full count. Grating length = bay_length_y.
   const enabledLevels = numLifts - config.disabled_platform_levels.length;
-  const accessBayGratings = config.include_gratings ? bayY.count * enabledLevels * 2 : 0;
-  const otherBayGratings = config.include_gratings ? Math.max(0, bayX.count - 1) * bayY.count * enabledLevels * 3 : 0;
-  const gratings = accessBayGratings + otherBayGratings;
+  let gratings = 0;
+  if (config.include_gratings) {
+    if (sections) {
+      let bayIdx = 0;
+      for (const sec of sections) {
+        const planksPerBay = Math.max(1, Math.floor(sec.bay_length / config.plank_width));
+        for (let i = 0; i < sec.bays; i++) {
+          const count = bayIdx === 0 ? Math.max(0, planksPerBay - 1) : planksPerBay;
+          gratings += count * bayY.count * enabledLevels;
+          bayIdx++;
+        }
+      }
+    } else {
+      const planksPerBay = Math.max(1, Math.floor(bayX.size / config.plank_width));
+      const accessBayGratings = Math.max(0, planksPerBay - 1) * bayY.count * enabledLevels;
+      const otherBayGratings = planksPerBay * Math.max(0, bayX.count - 1) * bayY.count * enabledLevels;
+      gratings = accessBayGratings + otherBayGratings;
+    }
+  }
+  const planks = gratings; // alias for PartsBom object
 
   // Toeboards: 3 sides per level
   const toeboards = config.include_toeboards ? 3 * numLifts : 0;
@@ -325,7 +475,6 @@ export function assembleTower(
   // STANDARDS: split tower height into standard lengths (max 3m each)
   const towerHeightTotal = numLifts * liftHeight;
   const standardSegments = splitIntoStandards(towerHeightTotal);
-  // Group by length
   const standardGroups: Record<number, number> = {};
   for (const seg of standardSegments) {
     standardGroups[seg.length] = (standardGroups[seg.length] ?? 0) + 1;
@@ -346,16 +495,18 @@ export function assembleTower(
     });
   }
 
-  // LEDGERS along X (including basement reinforcing)
-  const ledgerXWeight = LEDGER_WEIGHTS[bayX.size] ?? ((bayX.size / 1000) * 3.56 + 1.0);
-  const ledgerXQty = (ledgersXPerLevel * numLifts) + ledgersXPerLevel; // lift levels + basement
-  {
+  // LEDGERS along X — grouped by bay_length (one BOM line per length)
+  for (const [lenStr, numBays] of Object.entries(bayLengthGroupsX)) {
+    const len = parseInt(lenStr);
+    const ledgersXForThisLength = numBays * (bayY.count + 1); // per level
+    const ledgerXQty = ledgersXForThisLength * (numLifts + 1); // + basement
+    const ledgerXWeight = LEDGER_WEIGHTS[len] ?? ((len / 1000) * 3.56 + 1.0);
     const totalW = ledgerXQty * ledgerXWeight;
     totalWeight += totalW;
     details.push({
       part_type: "Ledger",
-      description: `Ledger ${bayX.size}mm (48.3×3.2) incl. basement reinforcing`,
-      size: `${bayX.size}mm`,
+      description: `Ledger ${len}mm (48.3×3.2) incl. basement reinforcing`,
+      size: `${len}mm`,
       quantity: ledgerXQty,
       unit_weight_kg: Math.round(ledgerXWeight * 100) / 100,
       total_weight_kg: Math.round(totalW * 100) / 100,
@@ -363,9 +514,9 @@ export function assembleTower(
   }
 
   // LEDGERS along Y (including basement reinforcing)
-  const ledgerYWeight = LEDGER_WEIGHTS[bayY.size] ?? ((bayY.size / 1000) * 3.56 + 1.0);
-  const ledgerYQty = (ledgersYPerLevel * numLifts) + ledgersYPerLevel; // lift levels + basement
   {
+    const ledgerYWeight = LEDGER_WEIGHTS[bayY.size] ?? ((bayY.size / 1000) * 3.56 + 1.0);
+    const ledgerYQty = ledgersYPerLevel * (numLifts + 1);
     const totalW = ledgerYQty * ledgerYWeight;
     totalWeight += totalW;
     details.push({
@@ -378,22 +529,23 @@ export function assembleTower(
     });
   }
 
-  // DIAGONAL BRACES
+  // DIAGONAL BRACES — one BOM line per bay_length group
   if (braces > 0) {
-    const braceLengthMm = Math.sqrt(
-      Math.max(bayX.size, bayY.size) ** 2 + liftHeight ** 2
-    );
-    const braceW = (braceLengthMm / 1000) * 2.75 + 1.0;
-    const totalW = braces * braceW;
-    totalWeight += totalW;
-    details.push({
-      part_type: "Diagonal brace",
-      description: `Diagonal brace ${Math.round(braceLengthMm)}mm (48.3×2.5)`,
-      size: `${Math.round(braceLengthMm)}mm`,
-      quantity: braces,
-      unit_weight_kg: Math.round(braceW * 100) / 100,
-      total_weight_kg: Math.round(totalW * 100) / 100,
-    });
+    for (const group of braceGroups) {
+      const braceLengthMm = Math.sqrt(group.bayLength ** 2 + liftHeight ** 2);
+      const braceW = (braceLengthMm / 1000) * 2.75 + 1.0;
+      const qty = group.faceCount * numLifts;
+      const totalW = qty * braceW;
+      totalWeight += totalW;
+      details.push({
+        part_type: "Diagonal brace",
+        description: `Diagonal brace ${Math.round(braceLengthMm)}mm (48.3×2.5)`,
+        size: `${Math.round(braceLengthMm)}mm`,
+        quantity: qty,
+        unit_weight_kg: Math.round(braceW * 100) / 100,
+        total_weight_kg: Math.round(totalW * 100) / 100,
+      });
+    }
   }
 
   // BASE JACKS / WHEELS — compliant to ringlock standard
@@ -435,20 +587,21 @@ export function assembleTower(
     });
   }
 
-  // GRATINGS (steel planks 320mm wide)
+  // GRATINGS (steel planks, width = plank_width, length = bay_length_y)
   if (gratings > 0) {
-    const gratingLen = bayX.size / 3;
-    // Find closest standard plank length
-    const plankLenKey = Object.keys(PLANK_WEIGHTS).map(Number).find(
-      (l) => Math.abs(l - gratingLen) < 200
-    ) ?? Math.round(gratingLen);
-    const unitW = PLANK_WEIGHTS[plankLenKey] ?? ((gratingLen / 1000) * 8.5 + 2.3);
+    const pw = config.plank_width;
+    const plankLen = bayY.size; // grating length = bay_length_y
+    const plankWeights = plankWeightTable(pw);
+    const plankLenKey = Object.keys(plankWeights).map(Number).find(
+      (l) => Math.abs(l - plankLen) < 200
+    ) ?? Math.round(plankLen);
+    const unitW = plankWeights[plankLenKey] ?? ((plankLen / 1000) * plankKgPerM(pw) + plankEndWeight(pw));
     const totalW = gratings * unitW;
     totalWeight += totalW;
     details.push({
       part_type: "Grating",
-      description: `Steel plank 320×${Math.round(gratingLen)}mm`,
-      size: `320×${Math.round(gratingLen)}mm`,
+      description: `Steel hook plank ${pw}×${Math.round(plankLen)}mm`,
+      size: `${pw}×${Math.round(plankLen)}mm`,
       quantity: gratings,
       unit_weight_kg: Math.round(unitW * 100) / 100,
       total_weight_kg: Math.round(totalW * 100) / 100,
@@ -486,17 +639,35 @@ export function assembleTower(
     });
   }
 
-  // LADDER (if enabled)
+  // PRIMARY LADDER (if enabled)
   if (config.include_ladder) {
-    // Ladder = 2 vertical rails (Ø30mm × tower height) + rungs every 300mm
-    const ladderRungCount = Math.floor(towerHeightTotal / 300);
-    const ladderRailWeight = (towerHeightTotal / 1000) * 1.7 * 2; // 2 rails, Ø30mm ≈ 1.7 kg/m
-    const ladderRungWeight = ladderRungCount * 0.3; // each rung ≈ 0.3 kg
-    const totalW = ladderRailWeight + ladderRungWeight;
+    const rungSpacing = 300;
+    const rungCount = Math.floor(towerHeightTotal / rungSpacing);
+    const railWeight = (towerHeightTotal / 1000) * 1.7 * 2; // 2 rails, Ø30mm ≈ 1.7 kg/m
+    const rungWeight = rungCount * 0.3;
+    const totalW = railWeight + rungWeight;
     totalWeight += totalW;
     details.push({
       part_type: "Ladder",
-      description: `Ladder (${ladderRungCount} rungs, 2 rails Ø30mm)`,
+      description: `Primary vertical ladder 2×Ø30 rail + ${rungCount} rungs @300mm`,
+      size: `${towerHeightTotal}mm`,
+      quantity: 1,
+      unit_weight_kg: Math.round(totalW * 100) / 100,
+      total_weight_kg: Math.round(totalW * 100) / 100,
+    });
+  }
+
+  // SECONDARY LADDER (escape, auto at ≥20m height/length)
+  if (config.secondary_access) {
+    const rungSpacing = 300;
+    const rungCount = Math.floor(towerHeightTotal / rungSpacing);
+    const railWeight = (towerHeightTotal / 1000) * 1.7 * 2;
+    const rungWeight = rungCount * 0.3;
+    const totalW = railWeight + rungWeight;
+    totalWeight += totalW;
+    details.push({
+      part_type: "Ladder",
+      description: `Secondary vertical ladder (escape) 2×Ø30 rail + ${rungCount} rungs @300mm`,
       size: `${towerHeightTotal}mm`,
       quantity: 1,
       unit_weight_kg: Math.round(totalW * 100) / 100,
@@ -567,6 +738,9 @@ export function assemblyToTowerConfig(result: AssemblyResult) {
     base_type: result.config.base_type,
     disabled_platform_levels: result.config.disabled_platform_levels,
     include_ladder: result.config.include_ladder,
+    plank_width: result.config.plank_width,
+    secondary_access: result.config.secondary_access,
+    sections: result.config.sections,
   };
 }
 
@@ -581,7 +755,12 @@ export function formatDimensions(dim: { length: number; width: number; height: n
 /**
  * Quick presets for common tower sizes.
  */
-export const TOWER_PRESETS = [
+export const TOWER_PRESETS: Array<{
+  label: string;
+  input: string;
+  description: string;
+  sections?: Array<{ bays: number; bay_length: number }>;
+}> = [
   {
     label: "Mobile tower",
     input: "1x1x2m",
@@ -606,5 +785,14 @@ export const TOWER_PRESETS = [
     label: "Heavy-duty",
     input: "2x2x10m",
     description: "Heavy-duty access tower, 10m high",
+  },
+  {
+    label: "Mixed 4m + 3m",
+    input: "25x1x8m",
+    description: "Mixed sections: 19 bays × 3070mm + 6 bays × 2570mm, 8m high",
+    sections: [
+      { bays: 19, bay_length: 3070 },
+      { bays: 6, bay_length: 2570 },
+    ],
   },
 ];

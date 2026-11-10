@@ -4,13 +4,16 @@ import { useMemo } from "react";
 import * as THREE from "three";
 
 import type { TowerConfig } from "@/lib/part-types";
+import { computeSectionLayout } from "@/lib/tower-assembler";
 
 /**
  * Procedural scaffold tower assembly built from THREE primitives.
  *
  * Coordinate system (mm):
  *   - Ground is the XY plane, +Z is up.
- *   - Standards placed on a grid at (i*bay_length_x, j*bay_length_y, 0).
+ *   - Standards placed on a grid at (bayLayout.standardXs[i], j*bay_length_y, 0).
+ *     For uniform bays, standardXs = [-towerX/2, -towerX/2 + bay_length_x, ...].
+ *     For mixed sections, standardXs reflects each bay's actual length.
  *   - Each standard spans z = 0 .. num_lifts*lift_height.
  *   - Rosettes welded onto standards at z = lift_height, 2*lift_height, ...
  *   - Ledgers connect adjacent standards at each rosette level (horizontal
@@ -18,6 +21,7 @@ import type { TowerConfig } from "@/lib/part-types";
  *   - Diagonal braces cross each bay face on the perimeter.
  *   - Base jacks (short cylinders) sit below each standard when enabled.
  *   - Planks (thin boxes) cover the top of each bay when enabled.
+ *   - Gratings = N steel planks per bay (count = floor(bay_length / plank_width)).
  *
  * The group is centred on the origin in XY so the camera frames the tower
  * nicely. Z=0 is ground level.
@@ -49,12 +53,18 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     include_toeboards = true,
     disabled_platform_levels = [],
     include_ladder = false,
+    plank_width = 320,
+    secondary_access = false,
+    sections,
   } = config as TowerConfig & {
     base_type?: "jack" | "wheel";
     include_gratings?: boolean;
     include_toeboards?: boolean;
     disabled_platform_levels?: number[];
     include_ladder?: boolean;
+    plank_width?: 320 | 230;
+    secondary_access?: boolean;
+    sections?: Array<{ bays: number; bay_length: number }>;
   };
 
   const materials = useMemo(
@@ -126,6 +136,16 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         roughness: 0.85,
         metalness: 0.1,
       }),
+      ladder: new THREE.MeshStandardMaterial({
+        color: "#f5c518",
+        roughness: 0.5,
+        metalness: 0.4,
+      }),
+      ladderSecondary: new THREE.MeshStandardMaterial({
+        color: "#ff8c00",
+        roughness: 0.5,
+        metalness: 0.4,
+      }),
     }),
     [],
   );
@@ -133,22 +153,35 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
   // Check if a part ID has been removed by the user
   const isRemoved = (id: string) => removedParts?.has(id) ?? false;
 
-  const towerX = bays_x * bay_length_x;
+  // ─── BAY LAYOUT ─────────────────────────────────────────────────────────
+  // For uniform bays: a single section of bays_x × bay_length_x.
+  // For mixed sections: each section's bays/length are honoured separately.
+  // bayLayout.standardXs has length totalBays + 1 (standards shared at
+  // section boundaries). bayLayout.bayCenters and bayLengths have length
+  // totalBays.
+  const bayLayout = useMemo(() => {
+    if (sections && sections.length > 0) {
+      return computeSectionLayout(sections);
+    }
+    return computeSectionLayout([{ bays: bays_x, bay_length: bay_length_x }]);
+  }, [sections, bays_x, bay_length_x]);
+
+  const towerX = bayLayout.totalLength;
   const towerY = bays_y * bay_length_y;
   const towerHeight = num_lifts * lift_height;
 
-  // Standard positions (grid corners)
+  // Standard positions (grid corners) — uses bayLayout for X positions
   const standardPositions = useMemo(() => {
     const pts: [number, number][] = [];
-    for (let i = 0; i <= bays_x; i++) {
+    for (let i = 0; i < bayLayout.standardXs.length; i++) {
       for (let j = 0; j <= bays_y; j++) {
-        const x = i * bay_length_x - towerX / 2;
+        const x = bayLayout.standardXs[i];
         const y = j * bay_length_y - towerY / 2;
         pts.push([x, y]);
       }
     }
     return pts;
-  }, [bays_x, bays_y, bay_length_x, bay_length_y, towerX, towerY]);
+  }, [bayLayout, bays_y, bay_length_y, towerY]);
 
   // Rosette z-positions: one per lift
   const rosetteZs = useMemo(() => {
@@ -168,7 +201,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
   const ledgerR = ledger_od / 2;
   const baseJackR = base_jack_od / 2;
 
-  // Ledgers
+  // Ledgers — uses bayLayout so each bay's actual length is respected
   const ledgers = useMemo(() => {
     const items: {
       x: number;
@@ -179,19 +212,18 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     }[] = [];
     for (let k = 0; k < num_lifts; k++) {
       const z = (k + 1) * lift_height;
-      // Ledgers along X
-      for (let i = 0; i < bays_x; i++) {
+      // Ledgers along X (per bay, length = bayLayout.bayLengths[i])
+      for (let i = 0; i < bayLayout.bayCenters.length; i++) {
         for (let j = 0; j <= bays_y; j++) {
-          const x1 = i * bay_length_x - towerX / 2;
-          const x2 = (i + 1) * bay_length_x - towerX / 2;
+          const x = bayLayout.bayCenters[i];
           const y = j * bay_length_y - towerY / 2;
-          items.push({ x: (x1 + x2) / 2, y, z, len: bay_length_x, axis: "x" });
+          items.push({ x, y, z, len: bayLayout.bayLengths[i], axis: "x" });
         }
       }
-      // Ledgers along Y
-      for (let i = 0; i <= bays_x; i++) {
+      // Ledgers along Y (per standard X position, length = bay_length_y)
+      for (let i = 0; i < bayLayout.standardXs.length; i++) {
         for (let j = 0; j < bays_y; j++) {
-          const x = i * bay_length_x - towerX / 2;
+          const x = bayLayout.standardXs[i];
           const y1 = j * bay_length_y - towerY / 2;
           const y2 = (j + 1) * bay_length_y - towerY / 2;
           items.push({ x, y: (y1 + y2) / 2, z, len: bay_length_y, axis: "y" });
@@ -200,20 +232,19 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     }
     return items;
   }, [
-    bays_x,
+    bayLayout,
     bays_y,
-    bay_length_x,
     bay_length_y,
     lift_height,
     num_lifts,
-    towerX,
     towerY,
   ]);
 
-  // Diagonal braces (perimeter only)
+  // Diagonal braces (perimeter only).
   // Real scaffold practice: ONE diagonal per side, with opposite direction
-  // across (adjacent sides have opposite diagonal directions). NOT an X-pattern
-  // (you can't physically install two crossing diagonals on the same face).
+  // across (adjacent sides have opposite diagonal directions). NOT an X-pattern.
+  // X-axis perimeter faces: at first and last standard X positions.
+  // Y-axis perimeter faces: per bay using bayLayout.standardXs[bi] and [bi+1].
   const braces = useMemo(() => {
     if (!include_braces) return [];
     const items: {
@@ -223,39 +254,33 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     for (let k = 0; k < num_lifts; k++) {
       const z1 = k * lift_height;
       const z2 = (k + 1) * lift_height;
-      // X-axis perimeter faces (i=0 left and i=bays_x right)
-      // Opposite sides get opposite diagonal directions
+      // X-axis perimeter faces (left/right ends of tower — first/last standard)
       for (const sideIdx of [0, 1] as number[]) {
-        const i = sideIdx === 0 ? 0 : bays_x;
-        const x = i * bay_length_x - towerX / 2;
+        const i = sideIdx === 0 ? 0 : bayLayout.standardXs.length - 1;
+        const x = bayLayout.standardXs[i];
         // Direction: side 0 → bottom-left to top-right, side 1 → top-left to bottom-right
         const dir = sideIdx === 0 ? 1 : -1;
         for (let j = 0; j < bays_y; j++) {
           const y1 = j * bay_length_y - towerY / 2;
           const y2 = (j + 1) * bay_length_y - towerY / 2;
           if (dir > 0) {
-            // bottom-left → top-right
             items.push({ from: [x, y1, z1], to: [x, y2, z2] });
           } else {
-            // top-left → bottom-right (opposite direction)
             items.push({ from: [x, y1, z2], to: [x, y2, z1] });
           }
         }
       }
-      // Y-axis perimeter faces (j=0 front and j=bays_y back)
-      // Opposite sides get opposite diagonal directions
+      // Y-axis perimeter faces (front/back of tower) — per bay
       for (const sideIdx of [0, 1] as number[]) {
         const j = sideIdx === 0 ? 0 : bays_y;
         const y = j * bay_length_y - towerY / 2;
         const dir = sideIdx === 0 ? 1 : -1;
-        for (let i = 0; i < bays_x; i++) {
-          const x1 = i * bay_length_x - towerX / 2;
-          const x2 = (i + 1) * bay_length_x - towerX / 2;
+        for (let bi = 0; bi < bayLayout.bayCenters.length; bi++) {
+          const x1 = bayLayout.standardXs[bi];
+          const x2 = bayLayout.standardXs[bi + 1];
           if (dir > 0) {
-            // bottom-left → top-right
             items.push({ from: [x1, y, z1], to: [x2, y, z2] });
           } else {
-            // top-left → bottom-right (opposite direction)
             items.push({ from: [x1, y, z2], to: [x2, y, z1] });
           }
         }
@@ -264,29 +289,27 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     return items;
   }, [
     include_braces,
-    bays_x,
+    bayLayout,
     bays_y,
-    bay_length_x,
     bay_length_y,
     lift_height,
     num_lifts,
-    towerX,
     towerY,
   ]);
 
-  // Planks
+  // Planks (top-level platforms — separate from per-level gratings)
   const planks = useMemo(() => {
     if (!include_planks) return [];
     const items: { x: number; y: number; w: number; h: number; z: number }[] = [];
     const topZ = towerHeight + plank_thickness / 2;
-    for (let i = 0; i < bays_x; i++) {
+    for (let i = 0; i < bayLayout.bayCenters.length; i++) {
       for (let j = 0; j < bays_y; j++) {
-        const x = (i + 0.5) * bay_length_x - towerX / 2;
+        const x = bayLayout.bayCenters[i];
         const y = (j + 0.5) * bay_length_y - towerY / 2;
         items.push({
           x,
           y,
-          w: bay_length_x * 0.92,
+          w: bayLayout.bayLengths[i] * 0.92,
           h: bay_length_y * 0.92,
           z: topZ,
         });
@@ -295,15 +318,71 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     return items;
   }, [
     include_planks,
-    bays_x,
+    bayLayout,
     bays_y,
-    bay_length_x,
     bay_length_y,
     towerHeight,
     plank_thickness,
-    towerX,
     towerY,
   ]);
+
+  // ─── Ladder geometry helper ─────────────────────────────────────────────
+  // Renders a vertical ladder (2 rails + rungs) inside a bay. `ladderCenterX`
+  // is the bay's center X; `ladderY` is the Y offset (typically ±towerY/2 - 80).
+  const renderLadder = (
+    ladderCenterX: number,
+    ladderY: number,
+    material: THREE.Material,
+    partName: string,
+    partId: string,
+  ) => {
+    const ladderRailR = 15; // Ø30mm
+    const railOffset = 200; // 400mm apart → ±200mm from center
+    const rungR = 10; // Ø20mm
+    const rungSpacing = 300;
+    const rungCount = Math.floor(towerHeight / rungSpacing);
+
+    return (
+      <group
+        key={partId}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (onPartClick) onPartClick(partName, [ladderCenterX, ladderY, towerHeight / 2], partId);
+        }}
+      >
+        {/* Left rail */}
+        <mesh
+          rotation={verticalRotation}
+          position={[ladderCenterX - railOffset, ladderY, towerHeight / 2]}
+          material={material}
+          castShadow
+        >
+          <cylinderGeometry args={[ladderRailR, ladderRailR, towerHeight, 16]} />
+        </mesh>
+        {/* Right rail */}
+        <mesh
+          rotation={verticalRotation}
+          position={[ladderCenterX + railOffset, ladderY, towerHeight / 2]}
+          material={material}
+          castShadow
+        >
+          <cylinderGeometry args={[ladderRailR, ladderRailR, towerHeight, 16]} />
+        </mesh>
+        {/* Rungs (cylinders along X — rotation [0, 0, Math.PI/2] turns default Y axis into X) */}
+        {Array.from({ length: rungCount }).map((_, ri) => (
+          <mesh
+            key={`rung-${partId}-${ri}`}
+            position={[ladderCenterX, ladderY, (ri + 1) * rungSpacing]}
+            rotation={[0, 0, Math.PI / 2]}
+            material={material}
+            castShadow
+          >
+            <cylinderGeometry args={[rungR, rungR, railOffset * 2, 8]} />
+          </mesh>
+        ))}
+      </group>
+    );
+  };
 
   return (
     <group>
@@ -462,36 +541,33 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       {/* ---- Reinforcing ledgers at basement level (clickable, different color) ---- */}
       {/* These are BASEMENT REINFORCING ledgers — different from regular lift ledgers.
           Uses a slightly different material color to distinguish them. */}
-      {Array.from({ length: bays_x }).map((_, i) =>
+      {bayLayout.bayCenters.map((cx, i) =>
         Array.from({ length: bays_y + 1 }).map((_, j) => {
           const partId = `reinforce-x-${i}-${j}`;
           if (isRemoved(partId)) return null;
-          const x1 = i * bay_length_x - towerX / 2;
-          const x2 = (i + 1) * bay_length_x - towerX / 2;
           const y = j * bay_length_y - towerY / 2;
-          const midX = (x1 + x2) / 2;
+          const len = bayLayout.bayLengths[i];
           return (
             <mesh
               key={partId}
-              position={[midX, y, 100]}
+              position={[cx, y, 100]}
               rotation={[0, 0, Math.PI / 2]}
               material={materials.spigot}
               castShadow
               onClick={(e) => {
                 e.stopPropagation();
-                if (onPartClick) onPartClick(`Reinforcing ledger X (basement)`, [midX, y, 100], partId);
+                if (onPartClick) onPartClick(`Reinforcing ledger X (basement)`, [cx, y, 100], partId);
               }}
             >
-              <cylinderGeometry args={[ledgerR, ledgerR, bay_length_x, 16]} />
+              <cylinderGeometry args={[ledgerR, ledgerR, len, 16]} />
             </mesh>
           );
         })
       )}
-      {Array.from({ length: bays_x + 1 }).map((_, i) =>
+      {bayLayout.standardXs.map((x, i) =>
         Array.from({ length: bays_y }).map((_, j) => {
           const partId = `reinforce-y-${i}-${j}`;
           if (isRemoved(partId)) return null;
-          const x = i * bay_length_x - towerX / 2;
           const y1 = j * bay_length_y - towerY / 2;
           const y2 = (j + 1) * bay_length_y - towerY / 2;
           const midY = (y1 + y2) / 2;
@@ -588,65 +664,56 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       ))}
 
       {/* ---- Grating platforms per level ---- */}
-      {/* MULTI-BAY RULE:
-          - Only ONE bay (bay i=0, the access bay) has the staggered opening (2/3 filled + 1/3 open)
-          - ALL other bays (i=1,2,...) are FULLY filled with gratings (3/3 coverage)
-          - The access bay opening staggers between levels (prevents fall-through)
+      {/* MULTI-BAY + PLANK WIDTH RULE:
+          - Planks per bay = floor((bay_length + gap) / (plank_width + gap))
+          - Only ONE bay (bay i=0, the access bay) has one row open per level
+            (alternates between front and back to prevent fall-through)
+          - ALL other bays (i>0) are FULLY filled with planks
           - Levels in disabled_platform_levels are skipped (no gratings) */}
       {include_gratings && rosetteZs.map((z, levelIdx) => {
         const levelNum = levelIdx + 1;
         if (disabled_platform_levels.includes(levelNum)) return null;
         return (
         <group key={`grating-${levelIdx}`}>
-          {Array.from({ length: bays_x }).map((_, i) =>
+          {bayLayout.bayCenters.map((bayCx, i) =>
             Array.from({ length: bays_y }).map((_, j) => {
-              const bayCenterX = (i + 0.5) * bay_length_x - towerX / 2;
               const bayCenterY = (j + 0.5) * bay_length_y - towerY / 2;
+              const pw = plank_width;
+              const gap = 4;
               const gratingThk = 8;
-              const gratingZ = z - gratingThk / 2 - 2;
+              const plankLen = bay_length_y * 0.96;
+              const bayLenX = bayLayout.bayLengths[i];
+              const planksPerBay = Math.max(1, Math.floor((bayLenX + gap) / (pw + gap)));
+              const stepX = bayLenX / planksPerBay;
+              const bayStartX = bayLayout.standardXs[i];
 
-              // Board follows WIDTH (Y direction, shorter)
-              const boardLen = bay_length_y * 0.94;
-              // Divide bay into 3 sections along X (length direction)
-              const sectionWidth = bay_length_x / 3;
+              // Access bay (i=0): one row open per level, alternating front/back
+              const accessOpenIdx = levelIdx % 2 === 0 ? planksPerBay - 1 : 0;
 
-              // Section X positions (0=back, 1=middle, 2=front)
-              const sectionX0 = bayCenterX - bay_length_x / 2 + sectionWidth / 2;
-              const sectionX1 = bayCenterX - bay_length_x / 2 + sectionWidth + sectionWidth / 2;
-              const sectionX2 = bayCenterX - bay_length_x / 2 + 2 * sectionWidth + sectionWidth / 2;
-
-              // MULTI-BAY RULE: Only bay i=0 (access bay) has the staggered opening.
-              // All other bays (i>0) are fully filled with 3 grating sections.
-              let boardSections: number[];
-              if (i === 0) {
-                // Access bay: 2 sections filled + 1 open (staggered)
-                const levelNum = levelIdx + 1;
-                const isOpenAtFront = levelNum % 2 === 1;
-                boardSections = isOpenAtFront ? [sectionX0, sectionX1] : [sectionX1, sectionX2];
-              } else {
-                // Non-access bays: fully filled (all 3 sections)
-                boardSections = [sectionX0, sectionX1, sectionX2];
-              }
-
-              return boardSections.map((boardX, bi) => {
-                const partId = `grating-L${levelIdx}-${i}-${j}-${bi}`;
-                if (isRemoved(partId)) return null;
-                return (
-                <mesh
-                  key={partId}
-                  position={[boardX, bayCenterY, gratingZ]}
-                  material={materials.grating}
-                  receiveShadow
-                  castShadow
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (onPartClick) onPartClick(`Grating L${levelIdx + 1} Bay ${i}`, [boardX, bayCenterY, gratingZ], partId);
-                  }}
-                >
-                  <boxGeometry args={[sectionWidth * 0.9, boardLen, gratingThk]} />
-                </mesh>
+              const planks: React.ReactNode[] = [];
+              for (let p = 0; p < planksPerBay; p++) {
+                if (i === 0 && p === accessOpenIdx) continue; // open row in access bay
+                const partId = `grating-L${levelIdx}-${i}-${j}-${p}`;
+                if (isRemoved(partId)) continue;
+                const plankX = bayStartX + (p + 0.5) * stepX;
+                const gratingZ = z - gratingThk / 2 - 2;
+                planks.push(
+                  <mesh
+                    key={partId}
+                    position={[plankX, bayCenterY, gratingZ]}
+                    material={materials.grating}
+                    receiveShadow
+                    castShadow
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (onPartClick) onPartClick(`Grating L${levelIdx + 1} Bay ${i}`, [plankX, bayCenterY, gratingZ], partId);
+                    }}
+                  >
+                    <boxGeometry args={[pw, plankLen, gratingThk]} />
+                  </mesh>
                 );
-              });
+              }
+              return planks;
             })
           )}
         </group>
@@ -704,13 +771,6 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         const railH1 = topZ + 500; // middle rail
         const railH2 = topZ + 1000; // top guardrail
         const railR = tubeR * 0.8;
-
-        // Guardrail post positions = same as standard positions (on the frame)
-        // Rails connect BETWEEN posts, same X/Y as the standards
-        // Back rail: along X at Y=-towerY/2 (back row of standards)
-        // Right rail: along Y at X=towerX/2 (right column of standards)
-        // Left rail: along Y at X=-towerX/2 (left column of standards)
-        // No front rail (open for access at +Y)
 
         // Rail length = distance between outermost posts on that side
         const railLenX = towerX; // along X = towerX
@@ -773,43 +833,36 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
             ))}
 
             {/* Trap door — flush with grating, exactly at the open section */}
-            {/* The open section is where no grating boards are placed (1/3 of bay) */}
+            {/* The open section is where no grating planks are placed (one row
+                in the access bay). Position computed from bay 0's plank layout. */}
             {(() => {
               const topLevelIdx = rosetteZs.length - 1;
               const levelNum = topLevelIdx + 1;
-              const isOpenAtFront = levelNum % 2 === 1; // odd levels open at +X
-              const sectionWidth = bay_length_x / 3;
-
-              // Bay center for bay (0,0)
-              const bayCx = bay_length_x / 2 - towerX / 2;
+              // Access bay is i=0; open index alternates per level
+              const accessOpenIdx = topLevelIdx % 2 === 0 ? Math.max(1, Math.floor((bayLayout.bayLengths[0] + 4) / (plank_width + 4))) - 1 : 0;
+              const pw = plank_width;
+              const gap = 4;
+              const bayLen0 = bayLayout.bayLengths[0];
+              const planksPerBay0 = Math.max(1, Math.floor((bayLen0 + gap) / (pw + gap)));
+              const stepX = bayLen0 / planksPerBay0;
+              const bayStartX = bayLayout.standardXs[0];
+              const trapX = bayStartX + (accessOpenIdx + 0.5) * stepX;
               const bayCy = bay_length_y / 2 - towerY / 2;
-
-              // The 3 section centers along X:
-              // section 0 (back, -X): bayCx - bay_length_x/2 + sectionWidth/2
-              // section 1 (middle):   bayCx
-              // section 2 (front, +X): bayCx + bay_length_x/2 - sectionWidth/2
-
-              // Open section: odd levels → section 2 (front); even → section 0 (back)
-              const openSectionX = isOpenAtFront
-                ? bayCx + bay_length_x / 2 - sectionWidth / 2  // front
-                : bayCx - bay_length_x / 2 + sectionWidth / 2; // back
-
-              // Trap door sits flush with grating level (same Z as grating boards)
               const gratingThk = 8;
               const trapZ = topZ - gratingThk / 2 - 2;
 
               return (
                 <mesh
                   key="trapdoor"
-                  position={[openSectionX, bayCy, trapZ]}
+                  position={[trapX, bayCy, trapZ]}
                   castShadow
                   receiveShadow
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (onPartClick) onPartClick("Trap door", [openSectionX, bayCy, trapZ], "trapdoor");
+                    if (onPartClick) onPartClick("Trap door", [trapX, bayCy, trapZ], "trapdoor");
                   }}
                 >
-                  <boxGeometry args={[sectionWidth * 0.9, bay_length_y * 0.94, gratingThk]} />
+                  <boxGeometry args={[pw, bay_length_y * 0.94, gratingThk]} />
                   <meshStandardMaterial color="#e8a020" roughness={0.5} metalness={0.4} />
                 </mesh>
               );
@@ -818,50 +871,33 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         );
       })()}
 
-      {/* ---- Ladder (if enabled) ---- */}
-      {/* Ladder runs vertically on the access bay side (+X front of bay 0).
+      {/* ---- Primary ladder (yellow, inside access bay 0) ---- */}
+      {/* Ladder runs vertically inside the first bay (access bay).
           Two vertical rails (Ø30mm) + horizontal rungs every 300mm.
           Goes from ground (z=0) to top platform. */}
       {include_ladder && (() => {
-        const ladderX = bay_length_x / 2 - towerX / 2 + bay_length_x / 3 * 1.5; // center of access opening
-        const ladderRailR = 15; // Ø30mm
-        const rungSpacing = 300;
-        const rungCount = Math.floor(towerHeight / rungSpacing);
-        const verticalRotation: [number, number, number] = [Math.PI / 2, 0, 0];
+        const ladderCenterX = bayLayout.bayCenters[0];
+        const ladderY = towerY / 2 - 80; // front face (+Y), 80mm inset
+        return renderLadder(
+          ladderCenterX,
+          ladderY,
+          materials.ladder,
+          "Primary ladder",
+          "ladder-primary",
+        );
+      })()}
 
-        return (
-          <group>
-            {/* Left rail */}
-            <mesh
-              rotation={verticalRotation}
-              position={[ladderX - 150, 0, towerHeight / 2]}
-              material={materials.standard}
-              castShadow
-            >
-              <cylinderGeometry args={[ladderRailR, ladderRailR, towerHeight, 16]} />
-            </mesh>
-            {/* Right rail */}
-            <mesh
-              rotation={verticalRotation}
-              position={[ladderX + 150, 0, towerHeight / 2]}
-              material={materials.standard}
-              castShadow
-            >
-              <cylinderGeometry args={[ladderRailR, ladderRailR, towerHeight, 16]} />
-            </mesh>
-            {/* Rungs */}
-            {Array.from({ length: rungCount }).map((_, ri) => (
-              <mesh
-                key={`rung-${ri}`}
-                position={[ladderX, 0, (ri + 1) * rungSpacing]}
-                rotation={[0, 0, Math.PI / 2]}
-                material={materials.standard}
-                castShadow
-              >
-                <cylinderGeometry args={[8, 8, 300, 8]} />
-              </mesh>
-            ))}
-          </group>
+      {/* ---- Secondary ladder (orange, escape, opposite end + opposite face) ---- */}
+      {secondary_access && (() => {
+        const lastIdx = bayLayout.bayCenters.length - 1;
+        const ladderCenterX = bayLayout.bayCenters[lastIdx];
+        const ladderY = -(towerY / 2 - 80); // back face (-Y), opposite of primary
+        return renderLadder(
+          ladderCenterX,
+          ladderY,
+          materials.ladderSecondary,
+          "Secondary ladder (escape)",
+          "ladder-secondary",
         );
       })()}
     </group>
