@@ -326,78 +326,87 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     towerY,
   ]);
 
-  // ─── LADDER OPENING POSITIONS ─────────────────────────────────────────
-  // For each bay that has a ladder, compute which plank indices to skip and
-  // where the ladder's vertical centerline should be. Two planks are removed
-  // per level to give the ladder (400mm wide = ±200mm rails) enough clearance.
+  // ─── STAIRCASE OPENING POSITIONS (per lift, non-adjacent) ─────────────
+  // For each lift level, the staircase goes from one end of the bay to the
+  // other. To avoid "adjacent ladder traps" (two consecutive levels with
+  // openings in the same position), the staircase DIRECTION alternates per
+  // lift: even lifts go -X→+X (on +Y face), odd lifts go +X→-X (on -Y face).
   //
-  // When a ladder is present, the opening is FIXED at the +X end of the bay
-  // on every level (the ladder is vertical and passes through the same hole).
-  // When NO ladder is present, a single plank alternates between +X and -X
-  // ends per level (fall-through protection for trapdoor-only access).
+  // This means:
+  //   - The 2-plank opening is at the +X end on even lifts, -X end on odd
+  //   - The staircase's top (where you exit onto the next platform) is at
+  //     +X on even lifts, -X on odd lifts — matching the next lift's
+  //     entrance (which is the previous lift's exit).
+  //   - No two adjacent levels have openings in the same X position → no
+  //     "adjacent ladder traps" (fall hazard is eliminated because each
+  //     platform is solid except for the one staircase entrance/exit).
   //
-  // `opening.count` = number of planks to remove (2 for ladder, 1 for trapdoor)
-  // `opening.startIdx` = index of the first removed plank
-  // `opening.ladderX` = X position for the ladder centerline (center of opening)
-  const ladderOpenings = useMemo(() => {
+  // `getOpeningForLift(bayIdx, liftIdx)` returns the skip indices + the
+  // staircase direction for that bay+lift combination.
+  const staircaseOpenings = useMemo(() => {
     const gap = 4;
     const pw = plank_width;
-    const computeForBay = (bayIdx: number): {
-      count: number;
-      startIdx: number;
-      ladderX: number;
-      planksPerBay: number;
-      stepX: number;
-      bayStartX: number;
-    } | null => {
+    const computeForBayAndLift = (bayIdx: number, liftIdx: number) => {
       if (bayIdx >= bayLayout.bayCenters.length) return null;
       const bayLenX = bayLayout.bayLengths[bayIdx];
       const planksPerBay = Math.max(2, Math.floor((bayLenX + gap) / (pw + gap)));
       const stepX = bayLenX / planksPerBay;
       const bayStartX = bayLayout.standardXs[bayIdx];
-      // Opening at +X end: last 2 planks (for ladder) or last 1 (trapdoor only)
-      const count = 2;
-      const startIdx = planksPerBay - count;
-      // Ladder center = midpoint between the 2 removed planks
-      // Plank p is at bayStartX + (p + 0.5) * stepX
-      // Planks startIdx and startIdx+1 are removed; center between them:
-      const ladderX = bayStartX + (startIdx + 1) * stepX;
-      return { count, startIdx, ladderX, planksPerBay, stepX, bayStartX };
+      // Opening direction alternates per lift:
+      //   even lift (0, 2, 4): opening at +X end, staircase goes -X→+X on +Y face
+      //   odd  lift (1, 3, 5): opening at -X end, staircase goes +X→-X on -Y face
+      const openingAtPlusX = liftIdx % 2 === 0;
+      const count = 2; // 2 planks removed for staircase clearance
+      const startIdx = openingAtPlusX ? planksPerBay - count : 0;
+      // Staircase spans the full bay length, inclined from one end to the other
+      const staircaseStartX = bayStartX; // -X end of bay
+      const staircaseEndX = bayStartX + bayLenX; // +X end of bay
+      // Staircase bottom (entrance) is at the OPPOSITE end from the opening
+      // (so you walk UP toward the opening, then exit onto the next platform)
+      const xBottom = openingAtPlusX ? staircaseStartX : staircaseEndX;
+      const xTop = openingAtPlusX ? staircaseEndX : staircaseStartX;
+      // Y face alternates per lift (non-adjacent)
+      const onPlusY = liftIdx % 2 === 0;
+      const yFace = onPlusY ? (towerY / 2 - 80) : -(towerY / 2 - 80);
+      // Trapdoor position (at the top of the staircase = the opening)
+      const trapdoorX = bayStartX + (startIdx + count / 2) * stepX;
+      const trapdoorWidth = count * stepX * 0.92;
+      return {
+        skipIndices: Array.from({ length: count }, (_, k) => startIdx + k),
+        xBottom, xTop, yFace, onPlusY,
+        trapdoorX, trapdoorWidth,
+        planksPerBay, stepX, bayStartX,
+      };
     };
-
-    const lastBayIdx = bayLayout.bayCenters.length - 1;
-    return {
-      primary: include_ladder ? computeForBay(0) : null,
-      secondary: secondary_access ? computeForBay(lastBayIdx) : null,
-      // For trapdoor-only access (no ladder), still remove 1 plank, alternating
-      trapdoorOnly: !include_ladder,
-      computeForBay,
-    };
-  }, [bayLayout, plank_width, include_ladder, secondary_access]);
+    return { computeForBayAndLift };
+  }, [bayLayout, plank_width]);
 
   // ─── Staircase section helper ────────────────────────────────────────
   // Renders one inclined staircase section covering a single lift level.
   // The staircase is inclined at ~70° from horizontal (for 2000mm lifts),
   // with 2 stringers + 5 steps + 1 guard rail.
   //
-  // "Non-adjacent" pattern: each section alternates between +Y and -Y faces
-  // per lift, creating a zigzag. Even lifts are on +Y, odd lifts on -Y.
-  // This means at each platform, you walk across to the opposite face to
-  // reach the next staircase.
+  // NON-ADJACENT PATTERN (no adjacent ladder traps):
+  //   - Each section alternates between +Y and -Y faces per lift
+  //   - The staircase DIRECTION also alternates per lift:
+  //       even lifts: -X → +X on +Y face (opening at +X end)
+  //       odd  lifts: +X → -X on -Y face (opening at -X end)
+  //   - This means the exit of one staircase = the entrance of the next,
+  //     and the platform opening alternates +X/-X per lift → no two
+  //     adjacent levels have openings in the same position.
   const renderStaircaseSection = (
     bayIdx: number,
     liftIdx: number,
-    startOnPlusY: boolean,
     material: THREE.Material,
     partName: string,
     partIdPrefix: string,
+    startOnPlusY: boolean,
   ) => {
     if (bayIdx >= bayLayout.bayCenters.length) return null;
 
-    const staircaseLen = 2134; // MDCRSC2134 catalog length
-    const rise = lift_height;
-    // Horizontal run = √(staircaseLen² - rise²). Clamp to ≥100mm for steep lifts.
-    const run = Math.sqrt(Math.max(100, staircaseLen * staircaseLen - rise * rise));
+    const opening = staircaseOpenings.computeForBayAndLift(bayIdx, liftIdx);
+    if (!opening) return null;
+
     const railOffset = 200; // 400mm between stringers → ±200mm
     const stepCount = 5; // MDCSFS0860 = 5 per staircase
     const guardRailOffset = 100; // guard rail is 100mm above the stringer
@@ -405,13 +414,8 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     const zBottom = liftIdx * lift_height;
     const zTop = (liftIdx + 1) * lift_height;
 
-    const bayCenterX = bayLayout.bayCenters[bayIdx];
-    const xBottom = bayCenterX - run / 2; // staircase starts at -X
-    const xTop = bayCenterX + run / 2; // staircase ends at +X (through the opening)
-
-    // Alternate Y face per lift (non-adjacent)
-    const onPlusY = startOnPlusY ? (liftIdx % 2 === 0) : (liftIdx % 2 === 1);
-    const yFace = onPlusY ? (towerY / 2 - 80) : -(towerY / 2 - 80);
+    // Use the opening's computed xBottom/xTop/yFace (already alternated per lift)
+    const { xBottom, xTop, yFace, onPlusY } = opening;
 
     // Direction vector (from bottom to top, in X-Z plane)
     const dx = xTop - xBottom;
@@ -765,15 +769,17 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       ))}
 
       {/* ---- Grating platforms per level ---- */}
-      {/* MULTI-BAY + LADDER OPENING RULE:
+      {/* NON-ADJACENT OPENING RULE (no adjacent ladder traps):
           - Planks per bay = floor((bay_length + gap) / (plank_width + gap))
-          - Access bay (i=0):
-            * If include_ladder: remove 2 planks at +X end (FIXED on every level)
-              → ladder passes through this 2-plank-wide opening on every level
-            * If no ladder: remove 1 plank, alternating +X/-X per level
-              (fall-through protection for trapdoor-only access)
+          - Access bay (i=0) with staircase:
+            * Remove 2 planks at the staircase exit end
+            * Even lifts: opening at +X end (staircase goes -X→+X on +Y)
+            * Odd lifts:  opening at -X end (staircase goes +X→-X on -Y)
+            * → openings alternate +X/-X per lift, never adjacent
           - Secondary access bay (last bay, if secondary_access):
-            * Remove 2 planks at +X end (FIXED) for escape ladder
+            * Same alternating pattern, but starts on -Y face
+          - Access bay WITHOUT staircase (no ladder): remove 1 plank, alternating
+            +X/-X per level (fall-through protection for trapdoor-only access)
           - All other bays: FULLY filled with planks
           - Levels in disabled_platform_levels are skipped (no gratings) */}
       {include_gratings && rosetteZs.map((z, levelIdx) => {
@@ -794,28 +800,27 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
               const bayStartX = bayLayout.standardXs[i];
 
               // Determine which plank indices to skip for this bay+level.
-              // Ladder bays: skip 2 planks at +X end (fixed).
-              // Trapdoor-only bay 0 (no ladder): skip 1 plank, alternating.
               const skipIndices = new Set<number>();
               const isPrimaryBay = i === 0;
               const isSecondaryBay = i === bayLayout.bayCenters.length - 1;
-              if (isPrimaryBay && ladderOpenings.primary) {
-                // Ladder present: skip 2 fixed planks
-                const { startIdx, count } = ladderOpenings.primary;
-                for (let k = 0; k < count; k++) skipIndices.add(startIdx + k);
-              } else if (isPrimaryBay && ladderOpenings.trapdoorOnly) {
+              const primaryHasStaircase = isPrimaryBay && include_ladder;
+              const secondaryHasStaircase = isSecondaryBay && secondary_access && !isPrimaryBay;
+
+              if (primaryHasStaircase || secondaryHasStaircase) {
+                // Staircase present: skip 2 planks at alternating end per lift
+                const opening = staircaseOpenings.computeForBayAndLift(i, levelIdx);
+                if (opening) {
+                  for (const idx of opening.skipIndices) skipIndices.add(idx);
+                }
+              } else if (isPrimaryBay && !include_ladder) {
                 // No ladder, trapdoor only: skip 1 alternating
                 const accessOpenIdx = levelIdx % 2 === 0 ? planksPerBay - 1 : 0;
                 skipIndices.add(accessOpenIdx);
-              } else if (isSecondaryBay && ladderOpenings.secondary) {
-                // Secondary escape ladder: skip 2 fixed planks
-                const { startIdx, count } = ladderOpenings.secondary;
-                for (let k = 0; k < count; k++) skipIndices.add(startIdx + k);
               }
 
               const planks: React.ReactNode[] = [];
               for (let p = 0; p < planksPerBay; p++) {
-                if (skipIndices.has(p)) continue; // open row(s) for ladder/trapdoor
+                if (skipIndices.has(p)) continue; // open row(s) for staircase/trapdoor
                 const partId = `grating-L${levelIdx}-${i}-${j}-${p}`;
                 if (isRemoved(partId)) continue;
                 const plankX = bayStartX + (p + 0.5) * stepX;
@@ -955,86 +960,73 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
               </mesh>
             ))}
 
-            {/* Trap door — flush with grating, exactly at the ladder opening */}
-            {/* The trapdoor covers the same opening as the ladder (2 planks wide
-                when ladder is present, 1 plank wide for trapdoor-only access).
-                Positioned at the +X end of bay 0. */}
-            {(() => {
-              const bayLen0 = bayLayout.bayLengths[0];
-              const pw = plank_width;
-              const gap = 4;
-              const planksPerBay0 = Math.max(2, Math.floor((bayLen0 + gap) / (pw + gap)));
-              const stepX = bayLen0 / planksPerBay0;
-              const bayStartX = bayLayout.standardXs[0];
-
-              // Trapdoor covers the same opening as the ladder
-              let trapX: number;
-              let trapWidth: number;
-              if (ladderOpenings.primary) {
-                // Ladder present: trapdoor spans the 2 removed planks
-                const { startIdx, count } = ladderOpenings.primary;
-                trapX = bayStartX + (startIdx + count / 2) * stepX;
-                trapWidth = count * stepX * 0.92;
-              } else {
-                // No ladder: trapdoor at alternating position (top level)
-                const topLevelIdx = rosetteZs.length - 1;
-                const accessOpenIdx = topLevelIdx % 2 === 0 ? planksPerBay0 - 1 : 0;
-                trapX = bayStartX + (accessOpenIdx + 0.5) * stepX;
-                trapWidth = pw;
-              }
-
+            {/* Trap doors — one per lift, at the staircase exit opening.
+                The trapdoor position alternates +X/-X per lift (matching the
+                staircase direction), so no two adjacent levels have trapdoors
+                in the same position. Each trapdoor spans 2 plank widths. */}
+            {include_ladder && rosetteZs.map((z, levelIdx) => {
+              const opening = staircaseOpenings.computeForBayAndLift(0, levelIdx);
+              if (!opening) return null;
+              const trapX = opening.trapdoorX;
+              const trapWidth = opening.trapdoorWidth;
               const bayCy = bay_length_y / 2 - towerY / 2;
               const gratingThk = 8;
-              const trapZ = topZ - gratingThk / 2 - 2;
-
+              const trapZ = z - gratingThk / 2 - 2;
               return (
                 <mesh
-                  key="trapdoor"
+                  key={`trapdoor-L${levelIdx}`}
                   position={[trapX, bayCy, trapZ]}
                   castShadow
                   receiveShadow
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (onPartClick) onPartClick("Trap door", [trapX, bayCy, trapZ], "trapdoor");
+                    if (onPartClick) onPartClick(`Trap door L${levelIdx + 1}`, [trapX, bayCy, trapZ], `trapdoor-L${levelIdx}`);
                   }}
                 >
                   <boxGeometry args={[trapWidth, bay_length_y * 0.94, gratingThk]} />
                   <meshStandardMaterial color="#e8a020" roughness={0.5} metalness={0.4} />
                 </mesh>
               );
-            })()}
+            })}
           </group>
         );
       })()}
 
       {/* ---- Primary staircase sections (yellow, access bay 0) ---- */}
-      {/* Non-adjacent angular staircases: one inclined section per lift level,
-          alternating between +Y and -Y faces per lift (zigzag pattern).
-          Each section: 2 stringers + 5 steps + 1 guard rail (MDCRSC2134 + MDCGRFS2134 + MDCSFS0860).
-          The staircase passes through the 2-plank opening at the +X end of the bay. */}
+      {/* NON-ADJACENT ANGULAR STAIRCASES (no adjacent ladder traps):
+          One inclined staircase per lift level. The staircase DIRECTION
+          alternates per lift:
+            even lifts: -X → +X on +Y face (opening at +X end)
+            odd  lifts: +X → -X on -Y face (opening at -X end)
+          This means the exit of one staircase = the entrance of the next,
+          and the platform opening alternates +X/-X per lift → no two
+          adjacent levels have openings in the same position.
+          Each section: 2 stringers + 5 steps + 1 guard rail
+          (MDCRSC2134 + MDCGRFS2134 + MDCSFS0860). */}
       {include_ladder && Array.from({ length: num_lifts }).map((_, liftIdx) => {
-        // Primary starts on +Y for even lifts, -Y for odd lifts
         return renderStaircaseSection(
           0, // bay 0 (access bay)
           liftIdx,
-          true, // start on +Y
           materials.ladder,
           "Primary staircase",
           "staircase-primary",
+          true, // start on +Y
         );
       })}
 
       {/* ---- Secondary staircase sections (orange, escape, last bay) ---- */}
-      {/* Same non-adjacent angular pattern, but starts on -Y (opposite face from primary). */}
+      {/* Same non-adjacent angular pattern, but starts on -Y (opposite face from primary).
+          The direction alternation is the same (even lifts: -X→+X, odd: +X→-X), so
+          the secondary staircase also has no adjacent ladder traps. */}
       {secondary_access && Array.from({ length: num_lifts }).map((_, liftIdx) => {
         const lastBayIdx = bayLayout.bayCenters.length - 1;
         return renderStaircaseSection(
           lastBayIdx, // last bay
           liftIdx,
-          false, // start on -Y (opposite of primary)
           materials.ladderSecondary,
           "Secondary staircase (escape)",
           "staircase-secondary",
+          false, // start on -Y (opposite of primary)
         );
       })}
     </group>
