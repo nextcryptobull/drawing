@@ -798,31 +798,99 @@ export function assembleTower(
     });
   }
 
-  // LEDGERS along X — grouped by bay_length (one BOM line per length).
-  // Catalog MDCLED0xxx — fallback formula (slope ≈ 3.5 kg/m, intercept ≈ 1.0).
-  // For long bays (>= 1570mm), use reinforced ledger weights (MDCRLE0xxx)
-  // when the bay_length is in that catalog — they're the proper spec for
-  // heavy-duty X-ledger spans.
-  for (const [lenStr, numBays] of Object.entries(bayLengthGroupsX)) {
+  // LEDGERS along X — grouped by bay_length AND reinforcement status.
+  // Reinforced ledgers (MDCRLE0xxx) are used at:
+  //   1. Staircase extremity bays (bay 0 = primary, last bay = secondary)
+  //      — these carry the staircase live load + impact forces
+  //   2. Force-application bays (every 3rd bay + extremities, same as diagonals)
+  //      — these carry lateral bracing forces
+  // Regular ledgers (MDCLED0xxx) are used at all other bays.
+  // BOM emits one line per (length, reinforced?) combination.
+  const totalBaysForLedgers = sections
+    ? sections.reduce((s, sec) => s + sec.bays, 0)
+    : bayX.count;
+  const lastBayIdxForLedgers = totalBaysForLedgers - 1;
+  // A bay needs reinforced ledgers if it's a staircase bay OR a braced bay
+  const hasPrimary = config.include_ladder || config.secondary_access;
+  const needsReinforcedLedger = (bayIdx: number): boolean => {
+    // Staircase extremities
+    if (hasPrimary && bayIdx === 0) return true;
+    if (config.secondary_access && bayIdx === lastBayIdxForLedgers) return true;
+    // Force-application bays (same rule as diagonals: every 3rd + extremities)
+    if (bayIdx === 0 || bayIdx % 3 === 0 || bayIdx === lastBayIdxForLedgers) return true;
+    return false;
+  };
+
+  // Build a map: { bayLength -> { reinforced: bayCount, regular: bayCount } }
+  const ledgerBaysByLength: Record<number, { reinforced: number; regular: number }> = {};
+  if (sections) {
+    let bayIdx = 0;
+    for (const sec of sections) {
+      for (let i = 0; i < sec.bays; i++) {
+        const len = sec.bay_length;
+        if (!ledgerBaysByLength[len]) ledgerBaysByLength[len] = { reinforced: 0, regular: 0 };
+        if (needsReinforcedLedger(bayIdx)) {
+          ledgerBaysByLength[len].reinforced++;
+        } else {
+          ledgerBaysByLength[len].regular++;
+        }
+        bayIdx++;
+      }
+    }
+  } else {
+    for (let bi = 0; bi < bayX.count; bi++) {
+      const len = bayX.size;
+      if (!ledgerBaysByLength[len]) ledgerBaysByLength[len] = { reinforced: 0, regular: 0 };
+      if (needsReinforcedLedger(bi)) {
+        ledgerBaysByLength[len].reinforced++;
+      } else {
+        ledgerBaysByLength[len].regular++;
+      }
+    }
+  }
+
+  // Emit BOM lines: one for reinforced, one for regular, per bay_length
+  for (const [lenStr, counts] of Object.entries(ledgerBaysByLength)) {
     const len = parseInt(lenStr);
-    const ledgersXForThisLength = numBays * (bayY.count + 1); // per level
-    const ledgerXQty = ledgersXForThisLength * (numLifts + 1); // + basement
-    const useReinforced = REINFORCED_LEDGER_WEIGHTS[len] != null;
-    const ledgerXWeight = useReinforced
-      ? REINFORCED_LEDGER_WEIGHTS[len]
-      : lookupWeight(LEDGER_WEIGHTS, len, 3.5, 1.0);
-    const totalW = ledgerXQty * ledgerXWeight;
-    totalWeight += totalW;
-    details.push({
-      part_type: "Ledger",
-      description: useReinforced
-        ? `Reinforced ledger ${len}mm (48.3×3.2) incl. basement — MDCRLE${String(len).padStart(4, "0")}`
-        : `Ledger ${len}mm (48.3×3.2) incl. basement reinforcing — MDCLED${String(len).padStart(4, "0")}`,
-      size: `${len}mm`,
-      quantity: ledgerXQty,
-      unit_weight_kg: Math.round(ledgerXWeight * 100) / 100,
-      total_weight_kg: Math.round(totalW * 100) / 100,
-    });
+    // Reinforced ledgers (MDCRLE0xxx) — only if catalog has this length
+    if (counts.reinforced > 0) {
+      const reinforcedWeight = REINFORCED_LEDGER_WEIGHTS[len];
+      const useReinforced = reinforcedWeight != null;
+      // If no catalog reinforced weight, fall back to regular weight + 50% safety factor
+      const weight = useReinforced
+        ? reinforcedWeight
+        : lookupWeight(LEDGER_WEIGHTS, len, 3.5, 1.0) * 1.5;
+      const ledgersXForThisLength = counts.reinforced * (bayY.count + 1); // per level
+      const ledgerXQty = ledgersXForThisLength * (numLifts + 1); // + basement
+      const totalW = ledgerXQty * weight;
+      totalWeight += totalW;
+      details.push({
+        part_type: "Ledger",
+        description: useReinforced
+          ? `Reinforced ledger ${len}mm (48.3×3.2) incl. basement — MDCRLE${String(len).padStart(4, "0")}  (staircase/force bays: ×${counts.reinforced})`
+          : `Reinforced ledger ${len}mm (estimated 1.5× regular) incl. basement  (staircase/force bays: ×${counts.reinforced})`,
+        size: `${len}mm`,
+        quantity: ledgerXQty,
+        unit_weight_kg: Math.round(weight * 100) / 100,
+        total_weight_kg: Math.round(totalW * 100) / 100,
+      });
+    }
+    // Regular ledgers (MDCLED0xxx)
+    if (counts.regular > 0) {
+      const regularWeight = lookupWeight(LEDGER_WEIGHTS, len, 3.5, 1.0);
+      const ledgersXForThisLength = counts.regular * (bayY.count + 1);
+      const ledgerXQty = ledgersXForThisLength * (numLifts + 1);
+      const totalW = ledgerXQty * regularWeight;
+      totalWeight += totalW;
+      details.push({
+        part_type: "Ledger",
+        description: `Ledger ${len}mm (48.3×3.2) incl. basement reinforcing — MDCLED${String(len).padStart(4, "0")}  (regular bays: ×${counts.regular})`,
+        size: `${len}mm`,
+        quantity: ledgerXQty,
+        unit_weight_kg: Math.round(regularWeight * 100) / 100,
+        total_weight_kg: Math.round(totalW * 100) / 100,
+      });
+    }
   }
 
   // LEDGERS along Y (including basement reinforcing).
