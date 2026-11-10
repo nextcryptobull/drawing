@@ -268,11 +268,17 @@ export function TowerViewer({ config, onRemovePart, removedParts }: { config: To
             const tX = debounced.bays_x * debounced.bay_length_x;
             const tY = debounced.bays_y * debounced.bay_length_y;
             const tH = debounced.num_lifts * debounced.lift_height;
+            // Compute ladder X = +X end of bay 0 (same formula as ScaffoldTowerMesh)
+            const pw = (debounced as { plank_width?: number }).plank_width ?? 320;
+            const gap = 4;
+            const planksPerBay = Math.max(2, Math.floor((debounced.bay_length_x + gap) / (pw + gap)));
+            const stepX = debounced.bay_length_x / planksPerBay;
+            const ladderX = -tX / 2 + (planksPerBay - 1) * stepX;
             return (
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => setFocusTarget({ name: "Primary ladder", pos: [-tX / 2 + debounced.bay_length_x / 2, tY / 2 - 80, tH / 2] })}
+                onClick={() => setFocusTarget({ name: "Primary ladder", pos: [ladderX, tY / 2 - 80, tH / 2] })}
                 className="bg-yellow-600/70 text-white hover:bg-yellow-600"
               >
                 <Focus className="mr-1 size-3" />
@@ -286,11 +292,19 @@ export function TowerViewer({ config, onRemovePart, removedParts }: { config: To
             const tX = debounced.bays_x * debounced.bay_length_x;
             const tY = debounced.bays_y * debounced.bay_length_y;
             const tH = debounced.num_lifts * debounced.lift_height;
+            // Compute ladder X = +X end of LAST bay (same formula as ScaffoldTowerMesh)
+            const pw = (debounced as { plank_width?: number }).plank_width ?? 320;
+            const gap = 4;
+            const planksPerBay = Math.max(2, Math.floor((debounced.bay_length_x + gap) / (pw + gap)));
+            const stepX = debounced.bay_length_x / planksPerBay;
+            // Last bay starts at tX/2 - bay_length_x (for uniform bays)
+            const lastBayStart = tX / 2 - debounced.bay_length_x;
+            const ladderX = lastBayStart + (planksPerBay - 1) * stepX;
             return (
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => setFocusTarget({ name: "Secondary ladder (escape)", pos: [tX / 2 - debounced.bay_length_x / 2, -(tY / 2 - 80), tH / 2] })}
+                onClick={() => setFocusTarget({ name: "Secondary ladder (escape)", pos: [ladderX, -(tY / 2 - 80), tH / 2] })}
                 className="bg-orange-600/70 text-white hover:bg-orange-600"
               >
                 <Focus className="mr-1 size-3" />

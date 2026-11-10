@@ -694,26 +694,44 @@ export function assembleTower(
   // Base jacks or wheels
   const baseJacks = numStandards;
 
-  // Gratings count — planksPerBay = floor(bay_length / plank_width).
-  // Access bay (i=0) gets planksPerBay - 1 (one row open for ladder).
-  // Other bays get full count. Grating length = bay_length_y.
+  // Gratings count — planksPerBay = floor((bay_length + gap) / (plank_width + gap)).
+  // Access bay (i=0):
+  //   - If include_ladder: planksPerBay - 2 (two rows removed for ladder opening)
+  //   - If no ladder: planksPerBay - 1 (one row removed for trapdoor access)
+  // Secondary access bay (last bay, if secondary_access):
+  //   - planksPerBay - 2 (two rows removed for escape ladder)
+  // Other bays: full count. Grating length = bay_length_x per section.
   const enabledLevels = numLifts - config.disabled_platform_levels.length;
+  const gap = 4;
+  const accessBayPlanksRemoved = config.include_ladder ? 2 : 1;
+  const secondaryPlanksRemoved = 2; // secondary_access always has a ladder
   let gratings = 0;
   if (config.include_gratings) {
     if (sections) {
       let bayIdx = 0;
+      const totalBays = sections.reduce((s, sec) => s + sec.bays, 0);
       for (const sec of sections) {
-        const planksPerBay = Math.max(1, Math.floor(sec.bay_length / config.plank_width));
+        const planksPerBay = Math.max(2, Math.floor((sec.bay_length + gap) / (config.plank_width + gap)));
         for (let i = 0; i < sec.bays; i++) {
-          const count = bayIdx === 0 ? Math.max(0, planksPerBay - 1) : planksPerBay;
+          let count = planksPerBay;
+          if (bayIdx === 0) {
+            count = Math.max(0, planksPerBay - accessBayPlanksRemoved);
+          } else if (bayIdx === totalBays - 1 && config.secondary_access) {
+            count = Math.max(0, planksPerBay - secondaryPlanksRemoved);
+          }
           gratings += count * bayY.count * enabledLevels;
           bayIdx++;
         }
       }
     } else {
-      const planksPerBay = Math.max(1, Math.floor(bayX.size / config.plank_width));
-      const accessBayGratings = Math.max(0, planksPerBay - 1) * bayY.count * enabledLevels;
-      const otherBayGratings = planksPerBay * Math.max(0, bayX.count - 1) * bayY.count * enabledLevels;
+      const planksPerBay = Math.max(2, Math.floor((bayX.size + gap) / (config.plank_width + gap)));
+      const accessBayGratings = Math.max(0, planksPerBay - accessBayPlanksRemoved) * bayY.count * enabledLevels;
+      let otherBayGratings = planksPerBay * Math.max(0, bayX.count - 1) * bayY.count * enabledLevels;
+      // Secondary access bay (last bay, if separate from access bay)
+      if (config.secondary_access && bayX.count > 1) {
+        // Last bay already counted as "other" with full planks — subtract 2
+        otherBayGratings -= secondaryPlanksRemoved * bayY.count * enabledLevels;
+      }
       gratings = accessBayGratings + otherBayGratings;
     }
   }
@@ -902,24 +920,50 @@ export function assembleTower(
   // so plank LENGTH = bay_length_x (per section). One BOM line per unique
   // bay_length so each catalog size gets its own entry.
   // For 230mm planks, weights are scaled by 230/320 = 0.719.
+  // Access bay (first bay): removes 2 planks if include_ladder, else 1 (trapdoor).
+  // Secondary access bay (last bay): removes 2 planks if secondary_access.
   if (gratings > 0) {
     const pw = config.plank_width;
     const plankWeights = plankWeightTable(pw);
     const enabledLevelsCount = numLifts - config.disabled_platform_levels.length;
     const gap = 4;
+    const accessBayPlanksRemoved = config.include_ladder ? 2 : 1;
+    const accessBayLength = sections ? sections[0].bay_length : bayX.size;
+    const lastBayLength = sections
+      ? sections[sections.length - 1].bay_length
+      : bayX.size;
+    const totalBaysCount = sections
+      ? sections.reduce((s, sec) => s + sec.bays, 0)
+      : bayX.count;
+    // Single-bay tower: access bay IS the last bay, don't double-subtract
+    const accessAndLastAreSame = totalBaysCount === 1;
 
     for (const [lenStr, numBays] of Object.entries(bayLengthGroupsX)) {
       const len = parseInt(lenStr);
-      const planksPerBay = Math.max(1, Math.floor((len + gap) / (pw + gap)));
-      // Access bay (first bay of first section) has one row open for trapdoor.
-      const accessBayLength = sections ? sections[0].bay_length : bayX.size;
+      const planksPerBay = Math.max(2, Math.floor((len + gap) / (pw + gap)));
       const isAccessLength = len === accessBayLength;
-      const accessBaysAtThisLength = isAccessLength ? 1 : 0;
-      const nonAccessBaysAtThisLength = numBays - accessBaysAtThisLength;
-      const planksThisLength = (
-        Math.max(0, planksPerBay - 1) * accessBaysAtThisLength +
-        planksPerBay * nonAccessBaysAtThisLength
-      ) * bayY.count * enabledLevelsCount;
+      const isLastBayLength = len === lastBayLength;
+
+      // Start with all bays fully filled
+      let planksThisLength = planksPerBay * numBays * bayY.count * enabledLevelsCount;
+
+      // Subtract access bay planks (1 access bay, at the first bay)
+      if (isAccessLength) {
+        planksThisLength -= accessBayPlanksRemoved * bayY.count * enabledLevelsCount;
+      }
+
+      // Subtract secondary access bay planks (1 bay, at the last bay)
+      if (config.secondary_access && isLastBayLength && !accessAndLastAreSame) {
+        planksThisLength -= 2 * bayY.count * enabledLevelsCount;
+      } else if (config.secondary_access && accessAndLastAreSame) {
+        // Single-bay tower: access + secondary both in same bay, remove max(2, 2) = 2
+        // (already subtracted 2 for access if include_ladder, subtract 0 more)
+        // If no ladder but secondary_access: subtract 2 for secondary
+        if (!config.include_ladder) {
+          planksThisLength -= 1 * bayY.count * enabledLevelsCount; // already removed 1 for trapdoor, remove 1 more
+        }
+      }
+
       if (planksThisLength <= 0) continue;
 
       const unitW = lookupWeight(plankWeights, len, plankKgPerM(pw), plankEndWeight(pw));

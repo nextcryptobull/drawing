@@ -326,6 +326,55 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     towerY,
   ]);
 
+  // ─── LADDER OPENING POSITIONS ─────────────────────────────────────────
+  // For each bay that has a ladder, compute which plank indices to skip and
+  // where the ladder's vertical centerline should be. Two planks are removed
+  // per level to give the ladder (400mm wide = ±200mm rails) enough clearance.
+  //
+  // When a ladder is present, the opening is FIXED at the +X end of the bay
+  // on every level (the ladder is vertical and passes through the same hole).
+  // When NO ladder is present, a single plank alternates between +X and -X
+  // ends per level (fall-through protection for trapdoor-only access).
+  //
+  // `opening.count` = number of planks to remove (2 for ladder, 1 for trapdoor)
+  // `opening.startIdx` = index of the first removed plank
+  // `opening.ladderX` = X position for the ladder centerline (center of opening)
+  const ladderOpenings = useMemo(() => {
+    const gap = 4;
+    const pw = plank_width;
+    const computeForBay = (bayIdx: number): {
+      count: number;
+      startIdx: number;
+      ladderX: number;
+      planksPerBay: number;
+      stepX: number;
+      bayStartX: number;
+    } | null => {
+      if (bayIdx >= bayLayout.bayCenters.length) return null;
+      const bayLenX = bayLayout.bayLengths[bayIdx];
+      const planksPerBay = Math.max(2, Math.floor((bayLenX + gap) / (pw + gap)));
+      const stepX = bayLenX / planksPerBay;
+      const bayStartX = bayLayout.standardXs[bayIdx];
+      // Opening at +X end: last 2 planks (for ladder) or last 1 (trapdoor only)
+      const count = 2;
+      const startIdx = planksPerBay - count;
+      // Ladder center = midpoint between the 2 removed planks
+      // Plank p is at bayStartX + (p + 0.5) * stepX
+      // Planks startIdx and startIdx+1 are removed; center between them:
+      const ladderX = bayStartX + (startIdx + 1) * stepX;
+      return { count, startIdx, ladderX, planksPerBay, stepX, bayStartX };
+    };
+
+    const lastBayIdx = bayLayout.bayCenters.length - 1;
+    return {
+      primary: include_ladder ? computeForBay(0) : null,
+      secondary: secondary_access ? computeForBay(lastBayIdx) : null,
+      // For trapdoor-only access (no ladder), still remove 1 plank, alternating
+      trapdoorOnly: !include_ladder,
+      computeForBay,
+    };
+  }, [bayLayout, plank_width, include_ladder, secondary_access]);
+
   // ─── Ladder geometry helper ─────────────────────────────────────────────
   // Renders a vertical ladder (2 rails + rungs) inside a bay. `ladderCenterX`
   // is the bay's center X; `ladderY` is the Y offset (typically ±towerY/2 - 80).
@@ -664,11 +713,16 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       ))}
 
       {/* ---- Grating platforms per level ---- */}
-      {/* MULTI-BAY + PLANK WIDTH RULE:
+      {/* MULTI-BAY + LADDER OPENING RULE:
           - Planks per bay = floor((bay_length + gap) / (plank_width + gap))
-          - Only ONE bay (bay i=0, the access bay) has one row open per level
-            (alternates between front and back to prevent fall-through)
-          - ALL other bays (i>0) are FULLY filled with planks
+          - Access bay (i=0):
+            * If include_ladder: remove 2 planks at +X end (FIXED on every level)
+              → ladder passes through this 2-plank-wide opening on every level
+            * If no ladder: remove 1 plank, alternating +X/-X per level
+              (fall-through protection for trapdoor-only access)
+          - Secondary access bay (last bay, if secondary_access):
+            * Remove 2 planks at +X end (FIXED) for escape ladder
+          - All other bays: FULLY filled with planks
           - Levels in disabled_platform_levels are skipped (no gratings) */}
       {include_gratings && rosetteZs.map((z, levelIdx) => {
         const levelNum = levelIdx + 1;
@@ -683,16 +737,33 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
               const gratingThk = 8;
               const plankLen = bay_length_y * 0.96;
               const bayLenX = bayLayout.bayLengths[i];
-              const planksPerBay = Math.max(1, Math.floor((bayLenX + gap) / (pw + gap)));
+              const planksPerBay = Math.max(2, Math.floor((bayLenX + gap) / (pw + gap)));
               const stepX = bayLenX / planksPerBay;
               const bayStartX = bayLayout.standardXs[i];
 
-              // Access bay (i=0): one row open per level, alternating front/back
-              const accessOpenIdx = levelIdx % 2 === 0 ? planksPerBay - 1 : 0;
+              // Determine which plank indices to skip for this bay+level.
+              // Ladder bays: skip 2 planks at +X end (fixed).
+              // Trapdoor-only bay 0 (no ladder): skip 1 plank, alternating.
+              const skipIndices = new Set<number>();
+              const isPrimaryBay = i === 0;
+              const isSecondaryBay = i === bayLayout.bayCenters.length - 1;
+              if (isPrimaryBay && ladderOpenings.primary) {
+                // Ladder present: skip 2 fixed planks
+                const { startIdx, count } = ladderOpenings.primary;
+                for (let k = 0; k < count; k++) skipIndices.add(startIdx + k);
+              } else if (isPrimaryBay && ladderOpenings.trapdoorOnly) {
+                // No ladder, trapdoor only: skip 1 alternating
+                const accessOpenIdx = levelIdx % 2 === 0 ? planksPerBay - 1 : 0;
+                skipIndices.add(accessOpenIdx);
+              } else if (isSecondaryBay && ladderOpenings.secondary) {
+                // Secondary escape ladder: skip 2 fixed planks
+                const { startIdx, count } = ladderOpenings.secondary;
+                for (let k = 0; k < count; k++) skipIndices.add(startIdx + k);
+              }
 
               const planks: React.ReactNode[] = [];
               for (let p = 0; p < planksPerBay; p++) {
-                if (i === 0 && p === accessOpenIdx) continue; // open row in access bay
+                if (skipIndices.has(p)) continue; // open row(s) for ladder/trapdoor
                 const partId = `grating-L${levelIdx}-${i}-${j}-${p}`;
                 if (isRemoved(partId)) continue;
                 const plankX = bayStartX + (p + 0.5) * stepX;
@@ -832,21 +903,34 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
               </mesh>
             ))}
 
-            {/* Trap door — flush with grating, exactly at the open section */}
-            {/* The open section is where no grating planks are placed (one row
-                in the access bay). Position computed from bay 0's plank layout. */}
+            {/* Trap door — flush with grating, exactly at the ladder opening */}
+            {/* The trapdoor covers the same opening as the ladder (2 planks wide
+                when ladder is present, 1 plank wide for trapdoor-only access).
+                Positioned at the +X end of bay 0. */}
             {(() => {
-              const topLevelIdx = rosetteZs.length - 1;
-              const levelNum = topLevelIdx + 1;
-              // Access bay is i=0; open index alternates per level
-              const accessOpenIdx = topLevelIdx % 2 === 0 ? Math.max(1, Math.floor((bayLayout.bayLengths[0] + 4) / (plank_width + 4))) - 1 : 0;
+              const bayLen0 = bayLayout.bayLengths[0];
               const pw = plank_width;
               const gap = 4;
-              const bayLen0 = bayLayout.bayLengths[0];
-              const planksPerBay0 = Math.max(1, Math.floor((bayLen0 + gap) / (pw + gap)));
+              const planksPerBay0 = Math.max(2, Math.floor((bayLen0 + gap) / (pw + gap)));
               const stepX = bayLen0 / planksPerBay0;
               const bayStartX = bayLayout.standardXs[0];
-              const trapX = bayStartX + (accessOpenIdx + 0.5) * stepX;
+
+              // Trapdoor covers the same opening as the ladder
+              let trapX: number;
+              let trapWidth: number;
+              if (ladderOpenings.primary) {
+                // Ladder present: trapdoor spans the 2 removed planks
+                const { startIdx, count } = ladderOpenings.primary;
+                trapX = bayStartX + (startIdx + count / 2) * stepX;
+                trapWidth = count * stepX * 0.92;
+              } else {
+                // No ladder: trapdoor at alternating position (top level)
+                const topLevelIdx = rosetteZs.length - 1;
+                const accessOpenIdx = topLevelIdx % 2 === 0 ? planksPerBay0 - 1 : 0;
+                trapX = bayStartX + (accessOpenIdx + 0.5) * stepX;
+                trapWidth = pw;
+              }
+
               const bayCy = bay_length_y / 2 - towerY / 2;
               const gratingThk = 8;
               const trapZ = topZ - gratingThk / 2 - 2;
@@ -862,7 +946,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
                     if (onPartClick) onPartClick("Trap door", [trapX, bayCy, trapZ], "trapdoor");
                   }}
                 >
-                  <boxGeometry args={[pw, bay_length_y * 0.94, gratingThk]} />
+                  <boxGeometry args={[trapWidth, bay_length_y * 0.94, gratingThk]} />
                   <meshStandardMaterial color="#e8a020" roughness={0.5} metalness={0.4} />
                 </mesh>
               );
@@ -872,11 +956,13 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       })()}
 
       {/* ---- Primary ladder (yellow, inside access bay 0) ---- */}
-      {/* Ladder runs vertically inside the first bay (access bay).
-          Two vertical rails (Ø30mm) + horizontal rungs every 300mm.
-          Goes from ground (z=0) to top platform. */}
-      {include_ladder && (() => {
-        const ladderCenterX = bayLayout.bayCenters[0];
+      {/* Ladder runs vertically inside the first bay (access bay), passing
+          through the 2-plank opening at the +X end of the bay. The opening
+          is computed in `ladderOpenings.primary` and is fixed on every level
+          (no alternating) so the ladder has a clear vertical path.
+          Two vertical rails (Ø30mm) + horizontal rungs every 300mm. */}
+      {include_ladder && ladderOpenings.primary && (() => {
+        const ladderCenterX = ladderOpenings.primary.ladderX;
         const ladderY = towerY / 2 - 80; // front face (+Y), 80mm inset
         return renderLadder(
           ladderCenterX,
@@ -888,9 +974,10 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       })()}
 
       {/* ---- Secondary ladder (orange, escape, opposite end + opposite face) ---- */}
-      {secondary_access && (() => {
-        const lastIdx = bayLayout.bayCenters.length - 1;
-        const ladderCenterX = bayLayout.bayCenters[lastIdx];
+      {/* Secondary escape ladder at the +X end of the LAST bay, on the -Y face
+          (opposite of primary). Passes through its own 2-plank opening. */}
+      {secondary_access && ladderOpenings.secondary && (() => {
+        const ladderCenterX = ladderOpenings.secondary.ladderX;
         const ladderY = -(towerY / 2 - 80); // back face (-Y), opposite of primary
         return renderLadder(
           ladderCenterX,
