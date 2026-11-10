@@ -801,83 +801,90 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       ))}
 
       {/* ---- Grating platforms per level ---- */}
-      {/* NON-ADJACENT OPENING RULE (no adjacent ladder traps):
-          - Planks per bay = floor((bay_length + gap) / (plank_width + gap))
-          - Access bay (i=0) with staircase:
-            * Remove 2 planks at the staircase exit end
-            * Even lifts: opening at +X end (staircase goes -X→+X on +Y)
-            * Odd lifts:  opening at -X end (staircase goes +X→-X on -Y)
-            * → openings alternate +X/-X per lift, never adjacent
-          - Secondary access bay (last bay, if secondary_access):
-            * Same alternating pattern, but starts on -Y face
-          - Access bay WITHOUT staircase (no ladder): remove 1 plank, alternating
-            +X/-X per level (fall-through protection for trapdoor-only access)
-          - All other bays: FULLY filled with planks
-          - Levels in disabled_platform_levels are skipped (no gratings) */}
+      {/* PLANK ORIENTATION (matches reference BOM catalog codes):
+          - Planks span along X (length = bay_length_x per section)
+            → e.g., MDCSPH2570 for a 2570mm bay, MDCSPH2070 for 2070mm
+          - Laid side by side along Y (width = plank_width, default 320mm)
+          - planksPerBay = floor(bay_length_y / plank_width)
+          - Plank dimensions: X = bay_length_x, Y = plank_width, Z = 8mm
+
+          STAIRCASE OPENING (non-adjacent, no adjacent traps):
+          - The staircase meets the platform at one Y face (+Y or -Y)
+          - Remove 2 planks at the staircase's Y face
+          - Primary: even lifts at +Y, odd at -Y (alternates)
+          - Secondary: opposite of primary
+          - The opening is at the Y face where the staircase top exits */}
       {include_gratings && rosetteZs.map((z, levelIdx) => {
         const levelNum = levelIdx + 1;
         if (disabled_platform_levels.includes(levelNum)) return null;
         return (
         <group key={`grating-${levelIdx}`}>
-          {bayLayout.bayCenters.map((bayCx, i) =>
-            Array.from({ length: bays_y }).map((_, j) => {
-              const bayCenterY = (j + 0.5) * bay_length_y - towerY / 2;
-              const pw = plank_width;
-              const gap = 4;
-              const gratingThk = 8;
-              const plankLen = bay_length_y * 0.96;
-              const bayLenX = bayLayout.bayLengths[i];
-              const planksPerBay = Math.max(2, Math.floor((bayLenX + gap) / (pw + gap)));
-              const stepX = bayLenX / planksPerBay;
-              const bayStartX = bayLayout.standardXs[i];
+          {bayLayout.bayCenters.map((bayCx, i) => {
+            const bayLenX = bayLayout.bayLengths[i];
+            const bayStartX = bayLayout.standardXs[i];
+            const pw = plank_width;
+            const gap = 4;
+            const gratingThk = 8;
+            // Planks span along X (length = bay_length_x), laid side by side along Y
+            const plankLenX = bayLenX * 0.96;
+            const planksPerBay = Math.max(2, Math.floor((bay_length_y + gap) / (pw + gap)));
+            const stepY = bay_length_y / planksPerBay;
+            const bayStartY = -towerY / 2;
 
-              // Determine which plank indices to skip for this bay+level.
-              const skipIndices = new Set<number>();
-              const isPrimaryBay = i === 0;
-              const isSecondaryBay = i === bayLayout.bayCenters.length - 1;
-              const primaryHasStaircase = isPrimaryBay && hasPrimaryStaircase;
-              const secondaryHasStaircase = isSecondaryBay && secondary_access && !isPrimaryBay;
+            // Determine which plank indices (Y positions) to skip for this bay+level.
+            const skipIndices = new Set<number>();
+            const isPrimaryBay = i === 0;
+            const isSecondaryBay = i === bayLayout.bayCenters.length - 1;
+            const primaryHasStaircase = isPrimaryBay && hasPrimaryStaircase;
+            const secondaryHasStaircase = isSecondaryBay && secondary_access && !isPrimaryBay;
 
-              if (primaryHasStaircase || secondaryHasStaircase) {
-                // Staircase present: skip 2 planks at alternating end per lift.
-                // Pass startOnPlusY: primary=true, secondary=false (opposite faces)
-                const startOnPlusY = primaryHasStaircase;
-                const opening = staircaseOpenings.computeForBayAndLift(i, levelIdx, startOnPlusY);
-                if (opening) {
-                  for (const idx of opening.skipIndices) skipIndices.add(idx);
-                }
-              } else if (isPrimaryBay && !hasPrimaryStaircase) {
-                // No ladder, trapdoor only: skip 1 alternating
-                const accessOpenIdx = levelIdx % 2 === 0 ? planksPerBay - 1 : 0;
-                skipIndices.add(accessOpenIdx);
+            if (primaryHasStaircase || secondaryHasStaircase) {
+              // Staircase present: skip 2 planks at the staircase's Y face.
+              // Primary: even lifts at +Y (last 2 planks), odd at -Y (first 2)
+              // Secondary: opposite of primary
+              const startOnPlusY = primaryHasStaircase;
+              const opening = staircaseOpenings.computeForBayAndLift(i, levelIdx, startOnPlusY);
+              if (opening) {
+                // The opening is at the staircase's Y face.
+                // onPlusY = true → opening at +Y end (last 2 planks)
+                // onPlusY = false → opening at -Y end (first 2 planks)
+                const count = 2;
+                const startIdx = opening.onPlusY ? planksPerBay - count : 0;
+                for (let k = 0; k < count; k++) skipIndices.add(startIdx + k);
               }
+            } else if (isPrimaryBay && !hasPrimaryStaircase) {
+              // No staircase, trapdoor only: skip 1 alternating
+              const accessOpenIdx = levelIdx % 2 === 0 ? planksPerBay - 1 : 0;
+              skipIndices.add(accessOpenIdx);
+            }
 
-              const planks: React.ReactNode[] = [];
-              for (let p = 0; p < planksPerBay; p++) {
-                if (skipIndices.has(p)) continue; // open row(s) for staircase/trapdoor
-                const partId = `grating-L${levelIdx}-${i}-${j}-${p}`;
-                if (isRemoved(partId)) continue;
-                const plankX = bayStartX + (p + 0.5) * stepX;
-                const gratingZ = z - gratingThk / 2 - 2;
-                planks.push(
-                  <mesh
-                    key={partId}
-                    position={[plankX, bayCenterY, gratingZ]}
-                    material={materials.grating}
-                    receiveShadow
-                    castShadow
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (onPartClick) onPartClick(`Grating L${levelIdx + 1} Bay ${i}`, [plankX, bayCenterY, gratingZ], partId);
-                    }}
-                  >
-                    <boxGeometry args={[pw, plankLen, gratingThk]} />
-                  </mesh>
-                );
-              }
-              return planks;
-            })
-          )}
+            const planks: React.ReactNode[] = [];
+            for (let p = 0; p < planksPerBay; p++) {
+              if (skipIndices.has(p)) continue;
+              const partId = `grating-L${levelIdx}-${i}-${p}`;
+              if (isRemoved(partId)) continue;
+              const plankY = bayStartY + (p + 0.5) * stepY;
+              const gratingZ = z - gratingThk / 2 - 2;
+              const plankX = bayStartX + bayLenX / 2;
+              planks.push(
+                <mesh
+                  key={partId}
+                  position={[plankX, plankY, gratingZ]}
+                  material={materials.grating}
+                  receiveShadow
+                  castShadow
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onPartClick) onPartClick(`Grating L${levelIdx + 1} Bay ${i}`, [plankX, plankY, gratingZ], partId);
+                  }}
+                >
+                  {/* Plank spans along X (length = bay_length_x), width along Y */}
+                  <boxGeometry args={[plankLenX, pw, gratingThk]} />
+                </mesh>
+              );
+            }
+            return planks;
+          })}
         </group>
         );
       })}
@@ -995,29 +1002,42 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
             ))}
 
             {/* Trap doors — one per lift, at the staircase exit opening.
-                The trapdoor position alternates +X/-X per lift (matching the
-                staircase direction), so no two adjacent levels have trapdoors
-                in the same position. Each trapdoor spans 2 plank widths. */}
+                The trapdoor covers the 2-plank opening at the staircase's Y face.
+                Since planks span along X (length = bay_length_x), the trapdoor
+                also spans along X with length = bay_length_x, and width = 2 planks
+                (2 × plank_width) in Y.
+                Uses catalog trapdoor sizes (MDCTWL0xxx): closest to bay_length_x. */}
             {hasPrimaryStaircase && rosetteZs.map((z, levelIdx) => {
-              const opening = staircaseOpenings.computeForBayAndLift(0, levelIdx);
+              const opening = staircaseOpenings.computeForBayAndLift(0, levelIdx, true);
               if (!opening) return null;
-              const trapX = opening.trapdoorX;
-              const trapWidth = opening.trapdoorWidth;
-              const bayCy = bay_length_y / 2 - towerY / 2;
+              const bayLen0 = bayLayout.bayLengths[0];
+              const pw = plank_width;
+              const gap = 4;
               const gratingThk = 8;
+              const planksPerBay = Math.max(2, Math.floor((bay_length_y + gap) / (pw + gap)));
+              const stepY = bay_length_y / planksPerBay;
+              const bayStartY = -towerY / 2;
+              // Opening at +Y (last 2 planks) or -Y (first 2), matching staircase face
+              const count = 2;
+              const startIdx = opening.onPlusY ? planksPerBay - count : 0;
+              const trapY = bayStartY + (startIdx + count / 2) * stepY;
+              const trapX = bayLayout.standardXs[0] + bayLen0 / 2;
               const trapZ = z - gratingThk / 2 - 2;
+              // Trapdoor dimensions: spans along X (bay_length_x), width = 2 planks in Y
+              const trapLenX = bayLen0 * 0.96;
+              const trapWidthY = count * stepY * 0.92;
               return (
                 <mesh
                   key={`trapdoor-L${levelIdx}`}
-                  position={[trapX, bayCy, trapZ]}
+                  position={[trapX, trapY, trapZ]}
                   castShadow
                   receiveShadow
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (onPartClick) onPartClick(`Trap door L${levelIdx + 1}`, [trapX, bayCy, trapZ], `trapdoor-L${levelIdx}`);
+                    if (onPartClick) onPartClick(`Trap door L${levelIdx + 1}`, [trapX, trapY, trapZ], `trapdoor-L${levelIdx}`);
                   }}
                 >
-                  <boxGeometry args={[trapWidth, bay_length_y * 0.94, gratingThk]} />
+                  <boxGeometry args={[trapLenX, trapWidthY, gratingThk]} />
                   <meshStandardMaterial color="#e8a020" roughness={0.5} metalness={0.4} />
                 </mesh>
               );
@@ -1119,36 +1139,39 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
           and spans the full bay width along Y. Aligned within the scaffold
           frame (bay center Y = 0), same gray material as regular gratings. */}
       {hasPrimaryStaircase && Array.from({ length: num_lifts }).map((_, liftIdx) => {
-        const opening = staircaseOpenings.computeForBayAndLift(0, liftIdx);
+        const opening = staircaseOpenings.computeForBayAndLift(0, liftIdx, true);
         if (!opening) return null;
-        const { xBottom } = opening;
+        const { xBottom, yFace } = opening;
         const pw = plank_width;
         const gap = 4;
         const landingThk = 8;
         const landingZ = liftIdx === 0
           ? landingThk / 2 + 2  // just above ground
           : liftIdx * lift_height - landingThk / 2 - 2;  // just below platform surface
-        const plankLen = bay_length_y * 0.96;
-        // Landing aligned within scaffold frame (bay center Y = 0),
-        // not at the staircase face. Same gray as regular gratings.
-        const landingY = 0;
+        // Landing planks span along X (same as regular gratings), 3 planks
+        // laid side by side along Y, centered on the staircase bottom entrance.
+        const bayLen0 = bayLayout.bayLengths[0];
+        const plankLenX = bayLen0 * 0.96;
+        const landingX = bayLayout.standardXs[0] + bayLen0 / 2;
         return (
           <group key={`landing-primary-L${liftIdx}`}>
             {Array.from({ length: 3 }).map((_, pi) => {
-              const plankX = xBottom + (pi - 1) * (pw + gap);
+              // 3 planks centered on yFace (staircase entrance position in Y)
+              const plankY = yFace + (pi - 1) * (pw + gap);
               return (
                 <mesh
                   key={`landing-primary-L${liftIdx}-${pi}`}
-                  position={[plankX, landingY, landingZ]}
+                  position={[landingX, plankY, landingZ]}
                   material={materials.grating}
                   castShadow
                   receiveShadow
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (onPartClick) onPartClick(`Landing pad L${liftIdx + 1} plank ${pi + 1}`, [plankX, landingY, landingZ], `landing-primary-L${liftIdx}-${pi}`);
+                    if (onPartClick) onPartClick(`Landing pad L${liftIdx + 1} plank ${pi + 1}`, [landingX, plankY, landingZ], `landing-primary-L${liftIdx}-${pi}`);
                   }}
                 >
-                  <boxGeometry args={[pw, plankLen, landingThk]} />
+                  {/* Plank spans along X (length = bay_length_x), width along Y */}
+                  <boxGeometry args={[plankLenX, pw, landingThk]} />
                 </mesh>
               );
             })}
@@ -1161,32 +1184,33 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         const lastBayIdx = bayLayout.bayCenters.length - 1;
         const opening = staircaseOpenings.computeForBayAndLift(lastBayIdx, liftIdx, false);
         if (!opening) return null;
-        const { xBottom } = opening;
+        const { yFace } = opening;
         const pw = plank_width;
         const gap = 4;
         const landingThk = 8;
         const landingZ = liftIdx === 0
           ? landingThk / 2 + 2
           : liftIdx * lift_height - landingThk / 2 - 2;
-        const plankLen = bay_length_y * 0.96;
-        const landingY = 0;
+        const bayLenLast = bayLayout.bayLengths[lastBayIdx];
+        const plankLenX = bayLenLast * 0.96;
+        const landingX = bayLayout.standardXs[lastBayIdx] + bayLenLast / 2;
         return (
           <group key={`landing-secondary-L${liftIdx}`}>
             {Array.from({ length: 3 }).map((_, pi) => {
-              const plankX = xBottom + (pi - 1) * (pw + gap);
+              const plankY = yFace + (pi - 1) * (pw + gap);
               return (
                 <mesh
                   key={`landing-secondary-L${liftIdx}-${pi}`}
-                  position={[plankX, landingY, landingZ]}
+                  position={[landingX, plankY, landingZ]}
                   material={materials.grating}
                   castShadow
                   receiveShadow
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (onPartClick) onPartClick(`Secondary landing pad L${liftIdx + 1} plank ${pi + 1}`, [plankX, landingY, landingZ], `landing-secondary-L${liftIdx}-${pi}`);
+                    if (onPartClick) onPartClick(`Secondary landing pad L${liftIdx + 1} plank ${pi + 1}`, [landingX, plankY, landingZ], `landing-secondary-L${liftIdx}-${pi}`);
                   }}
                 >
-                  <boxGeometry args={[pw, plankLen, landingThk]} />
+                  <boxGeometry args={[plankLenX, pw, landingThk]} />
                 </mesh>
               );
             })}

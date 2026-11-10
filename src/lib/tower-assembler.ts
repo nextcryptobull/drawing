@@ -723,43 +723,43 @@ export function assembleTower(
   // Base jacks or wheels
   const baseJacks = numStandards;
 
-  // Gratings count — planksPerBay = floor((bay_length + gap) / (plank_width + gap)).
+  // Gratings count — planks span along X (length = bay_length_x), laid side by
+  // side along Y. planksPerBay = floor(bay_length_y / plank_width).
   // Access bay (i=0):
-  //   - If include_ladder: planksPerBay - 2 (two rows removed for ladder opening)
+  //   - If include_ladder or secondary_access: planksPerBay - 2 (two rows removed for staircase)
   //   - If no ladder: planksPerBay - 1 (one row removed for trapdoor access)
   // Secondary access bay (last bay, if secondary_access):
-  //   - planksPerBay - 2 (two rows removed for escape ladder)
+  //   - planksPerBay - 2 (two rows removed for escape staircase)
   // Other bays: full count. Grating length = bay_length_x per section.
   const enabledLevels = numLifts - config.disabled_platform_levels.length;
   const gap = 4;
-  const accessBayPlanksRemoved = config.include_ladder ? 2 : 1;
-  const secondaryPlanksRemoved = 2; // secondary_access always has a ladder
+  // planksPerBay is based on bay_length_y (the Y width), not bay_length_x
+  const planksPerBayY = Math.max(2, Math.floor((bayY.size + gap) / (config.plank_width + gap)));
+  const accessBayPlanksRemoved = (config.include_ladder || config.secondary_access) ? 2 : 1;
+  const secondaryPlanksRemoved = 2; // secondary_access always has a staircase
   let gratings = 0;
   if (config.include_gratings) {
     if (sections) {
       let bayIdx = 0;
       const totalBays = sections.reduce((s, sec) => s + sec.bays, 0);
       for (const sec of sections) {
-        const planksPerBay = Math.max(2, Math.floor((sec.bay_length + gap) / (config.plank_width + gap)));
         for (let i = 0; i < sec.bays; i++) {
-          let count = planksPerBay;
+          let count = planksPerBayY;
           if (bayIdx === 0) {
-            count = Math.max(0, planksPerBay - accessBayPlanksRemoved);
+            count = Math.max(0, planksPerBayY - accessBayPlanksRemoved);
           } else if (bayIdx === totalBays - 1 && config.secondary_access) {
-            count = Math.max(0, planksPerBay - secondaryPlanksRemoved);
+            count = Math.max(0, planksPerBayY - secondaryPlanksRemoved);
           }
-          gratings += count * bayY.count * enabledLevels;
+          gratings += count * enabledLevels;
           bayIdx++;
         }
       }
     } else {
-      const planksPerBay = Math.max(2, Math.floor((bayX.size + gap) / (config.plank_width + gap)));
-      const accessBayGratings = Math.max(0, planksPerBay - accessBayPlanksRemoved) * bayY.count * enabledLevels;
-      let otherBayGratings = planksPerBay * Math.max(0, bayX.count - 1) * bayY.count * enabledLevels;
+      const accessBayGratings = Math.max(0, planksPerBayY - accessBayPlanksRemoved) * enabledLevels;
+      let otherBayGratings = planksPerBayY * Math.max(0, bayX.count - 1) * enabledLevels;
       // Secondary access bay (last bay, if separate from access bay)
       if (config.secondary_access && bayX.count > 1) {
-        // Last bay already counted as "other" with full planks — subtract 2
-        otherBayGratings -= secondaryPlanksRemoved * bayY.count * enabledLevels;
+        otherBayGratings -= secondaryPlanksRemoved * enabledLevels;
       }
       gratings = accessBayGratings + otherBayGratings;
     }
