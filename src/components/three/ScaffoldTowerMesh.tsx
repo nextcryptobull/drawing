@@ -243,22 +243,31 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
   // Diagonal braces (perimeter only).
   // Real scaffold practice: ONE diagonal per side, with opposite direction
   // across (adjacent sides have opposite diagonal directions). NOT an X-pattern.
-  // X-axis perimeter faces: at first and last standard X positions.
-  // Y-axis perimeter faces: per bay using bayLayout.standardXs[bi] and [bi+1].
+  // X-axis perimeter faces: at first and last standard X positions (the two
+  // extremities of the tower). Always braced.
+  // Y-axis perimeter faces: only at every 3rd bay + the two extremity bays
+  // (bay 0, bay 3, bay 6, ..., last bay). This follows the user's rule:
+  // "Diagonals are needed at every 3rd bays and at two extremities."
   const braces = useMemo(() => {
     if (!include_braces) return [];
     const items: {
       from: [number, number, number];
       to: [number, number, number];
     }[] = [];
+    const totalBays = bayLayout.bayCenters.length;
+    const lastBayIdx = totalBays - 1;
+    // A bay gets Y-axis braces if it's bay 0, every 3rd bay, or the last bay
+    const shouldBraceBay = (bi: number) =>
+      bi === 0 || bi % 3 === 0 || bi === lastBayIdx;
+
     for (let k = 0; k < num_lifts; k++) {
       const z1 = k * lift_height;
       const z2 = (k + 1) * lift_height;
       // X-axis perimeter faces (left/right ends of tower — first/last standard)
+      // These are the "two extremities" — always braced.
       for (const sideIdx of [0, 1] as number[]) {
         const i = sideIdx === 0 ? 0 : bayLayout.standardXs.length - 1;
         const x = bayLayout.standardXs[i];
-        // Direction: side 0 → bottom-left to top-right, side 1 → top-left to bottom-right
         const dir = sideIdx === 0 ? 1 : -1;
         for (let j = 0; j < bays_y; j++) {
           const y1 = j * bay_length_y - towerY / 2;
@@ -270,12 +279,13 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
           }
         }
       }
-      // Y-axis perimeter faces (front/back of tower) — per bay
+      // Y-axis perimeter faces (front/back of tower) — only at every 3rd bay + extremities
       for (const sideIdx of [0, 1] as number[]) {
         const j = sideIdx === 0 ? 0 : bays_y;
         const y = j * bay_length_y - towerY / 2;
         const dir = sideIdx === 0 ? 1 : -1;
-        for (let bi = 0; bi < bayLayout.bayCenters.length; bi++) {
+        for (let bi = 0; bi < totalBays; bi++) {
+          if (!shouldBraceBay(bi)) continue; // skip non-braced bays
           const x1 = bayLayout.standardXs[bi];
           const x2 = bayLayout.standardXs[bi + 1];
           if (dir > 0) {
@@ -991,6 +1001,91 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
             })}
           </group>
         );
+      })()}
+
+      {/* ---- Handrails + middle rails on staircase bays ---- */}
+      {/* SAFETY: where there are stairs, both Y faces (+Y and -Y) of the
+          staircase bay need handrails (top rail at 1000mm above platform)
+          and middle rails (at 500mm above platform) for every lift level.
+          The staircase alternates Y face per lift, so both faces need
+          continuous rails for the full tower height.
+          Rails run along X (the bay length), at the bay's Y boundary. */}
+      {include_ladder && (() => {
+        const railR = tubeR * 0.7;
+        const railLenX = bayLayout.bayLengths[0]; // primary staircase bay length
+        const bayStartX = bayLayout.standardXs[0];
+        const railCenterX = bayStartX + railLenX / 2;
+        const rails: React.ReactNode[] = [];
+        for (let liftIdx = 0; liftIdx < num_lifts; liftIdx++) {
+          const platformZ = (liftIdx + 1) * lift_height;
+          const middleRailZ = platformZ + 500;
+          const topRailZ = platformZ + 1000;
+          for (const yFace of [towerY / 2, -towerY / 2]) {
+            // Middle rail
+            rails.push(
+              <mesh
+                key={`handrail-primary-L${liftIdx}-mid-${yFace > 0 ? "pY" : "mY"}`}
+                position={[railCenterX, yFace, middleRailZ]}
+                rotation={[0, 0, Math.PI / 2]}
+                material={materials.standard}
+                castShadow
+              >
+                <cylinderGeometry args={[railR, railR, railLenX, 16]} />
+              </mesh>
+            );
+            // Top handrail
+            rails.push(
+              <mesh
+                key={`handrail-primary-L${liftIdx}-top-${yFace > 0 ? "pY" : "mY"}`}
+                position={[railCenterX, yFace, topRailZ]}
+                rotation={[0, 0, Math.PI / 2]}
+                material={materials.standard}
+                castShadow
+              >
+                <cylinderGeometry args={[railR, railR, railLenX, 16]} />
+              </mesh>
+            );
+          }
+        }
+        return <group>{rails}</group>;
+      })()}
+      {secondary_access && (() => {
+        const railR = tubeR * 0.7;
+        const lastBayIdx = bayLayout.bayCenters.length - 1;
+        const railLenX = bayLayout.bayLengths[lastBayIdx];
+        const bayStartX = bayLayout.standardXs[lastBayIdx];
+        const railCenterX = bayStartX + railLenX / 2;
+        const rails: React.ReactNode[] = [];
+        for (let liftIdx = 0; liftIdx < num_lifts; liftIdx++) {
+          const platformZ = (liftIdx + 1) * lift_height;
+          const middleRailZ = platformZ + 500;
+          const topRailZ = platformZ + 1000;
+          for (const yFace of [towerY / 2, -towerY / 2]) {
+            rails.push(
+              <mesh
+                key={`handrail-secondary-L${liftIdx}-mid-${yFace > 0 ? "pY" : "mY"}`}
+                position={[railCenterX, yFace, middleRailZ]}
+                rotation={[0, 0, Math.PI / 2]}
+                material={materials.standard}
+                castShadow
+              >
+                <cylinderGeometry args={[railR, railR, railLenX, 16]} />
+              </mesh>
+            );
+            rails.push(
+              <mesh
+                key={`handrail-secondary-L${liftIdx}-top-${yFace > 0 ? "pY" : "mY"}`}
+                position={[railCenterX, yFace, topRailZ]}
+                rotation={[0, 0, Math.PI / 2]}
+                material={materials.standard}
+                castShadow
+              >
+                <cylinderGeometry args={[railR, railR, railLenX, 16]} />
+              </mesh>
+            );
+          }
+        }
+        return <group>{rails}</group>;
       })()}
 
       {/* ---- Landing pads (3 planks) at the bottom of each primary staircase ---- */}

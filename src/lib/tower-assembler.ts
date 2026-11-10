@@ -674,18 +674,47 @@ export function assembleTower(
   const ledgersYTotal = ledgersYPerLevel * (numLifts + 1);
   const ledgers = ledgersXTotal + ledgersYTotal;
 
-  // Braces — per bay_length group. Each bay_length from X sections + bay_length_y
-  // gets its own BOM entry. Face count for X-bayLen = 2 × baysWithThisXLength;
-  // for Y-bayLen = 2 × bayY.count. Brace qty = faceCount × numLifts.
+  // Braces — per bay_length group. Diagonals are placed at every 3rd bay
+  // and at the two extremities (bay 0 + last bay) per the user's rule:
+  // "Diagonals are needed at every 3rd bays and at two extremities."
+  // Face count for X-bayLen = 2 × bracedBaysAtThisLength (front + back);
+  // for Y-bayLen = 2 × bayY.count (left + right ends, always braced).
+  const totalBaysCount = sections
+    ? sections.reduce((s, sec) => s + sec.bays, 0)
+    : bayX.count;
+  const lastBayIdx = totalBaysCount - 1;
+  const shouldBraceBay = (bi: number) =>
+    bi === 0 || bi % 3 === 0 || bi === lastBayIdx;
+
+  // Count braced bays per bay_length
+  const bracedBaysByLength: Record<number, number> = {};
+  if (sections) {
+    let bayIdx = 0;
+    for (const sec of sections) {
+      for (let i = 0; i < sec.bays; i++) {
+        if (shouldBraceBay(bayIdx)) {
+          bracedBaysByLength[sec.bay_length] = (bracedBaysByLength[sec.bay_length] ?? 0) + 1;
+        }
+        bayIdx++;
+      }
+    }
+  } else {
+    for (let bi = 0; bi < bayX.count; bi++) {
+      if (shouldBraceBay(bi)) {
+        bracedBaysByLength[bayX.size] = (bracedBaysByLength[bayX.size] ?? 0) + 1;
+      }
+    }
+  }
+
   const braceGroups: { bayLength: number; faceCount: number }[] = [];
   let totalBraces = 0;
-  for (const [lenStr, numBays] of Object.entries(bayLengthGroupsX)) {
-    const faceCount = 2 * numBays; // front + back of each X-bay
+  for (const [lenStr, numBracedBays] of Object.entries(bracedBaysByLength)) {
+    const faceCount = 2 * numBracedBays; // front + back of each braced X-bay
     braceGroups.push({ bayLength: parseInt(lenStr), faceCount });
     totalBraces += faceCount * numLifts;
   }
   if (config.include_braces) {
-    const yFaceCount = 2 * bayY.count; // left + right ends of the tower
+    const yFaceCount = 2 * bayY.count; // left + right ends of the tower (extremities)
     braceGroups.push({ bayLength: bayY.size, faceCount: yFaceCount });
     totalBraces += yFaceCount * numLifts;
   }
