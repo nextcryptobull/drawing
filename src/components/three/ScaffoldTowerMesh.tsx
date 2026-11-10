@@ -1093,23 +1093,22 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
           for safe access. These are rendered at the platform level below each
           staircase entrance (or at ground level for lift 0).
           The landing spans 3 plank widths along X, centered on xBottom,
-          and spans the full bay width along Y (like regular gratings). */}
+          and spans the full bay width along Y. Aligned within the scaffold
+          frame (bay center Y = 0), same gray material as regular gratings. */}
       {include_ladder && Array.from({ length: num_lifts }).map((_, liftIdx) => {
         const opening = staircaseOpenings.computeForBayAndLift(0, liftIdx);
         if (!opening) return null;
-        const { xBottom, yFace, onPlusY } = opening;
+        const { xBottom } = opening;
         const pw = plank_width;
         const gap = 4;
         const landingThk = 8;
-        // Landing Z = bottom of this staircase's lift (= platform level below)
-        // For lift 0: z ≈ 0 (ground level, slightly above for visibility)
-        // For lift N: z = N * lift_height (platform level)
         const landingZ = liftIdx === 0
           ? landingThk / 2 + 2  // just above ground
           : liftIdx * lift_height - landingThk / 2 - 2;  // just below platform surface
         const plankLen = bay_length_y * 0.96;
-        // 3 planks, centered on xBottom, spanning along X
-        const landingWidth = pw * 3 + gap * 2;
+        // Landing aligned within scaffold frame (bay center Y = 0),
+        // not at the staircase face. Same gray as regular gratings.
+        const landingY = 0;
         return (
           <group key={`landing-primary-L${liftIdx}`}>
             {Array.from({ length: 3 }).map((_, pi) => {
@@ -1117,13 +1116,13 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
               return (
                 <mesh
                   key={`landing-primary-L${liftIdx}-${pi}`}
-                  position={[plankX, yFace, landingZ]}
-                  material={materials.ladder}
+                  position={[plankX, landingY, landingZ]}
+                  material={materials.grating}
                   castShadow
                   receiveShadow
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (onPartClick) onPartClick(`Landing pad L${liftIdx + 1} plank ${pi + 1}`, [plankX, yFace, landingZ], `landing-primary-L${liftIdx}-${pi}`);
+                    if (onPartClick) onPartClick(`Landing pad L${liftIdx + 1} plank ${pi + 1}`, [plankX, landingY, landingZ], `landing-primary-L${liftIdx}-${pi}`);
                   }}
                 >
                   <boxGeometry args={[pw, plankLen, landingThk]} />
@@ -1139,7 +1138,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         const lastBayIdx = bayLayout.bayCenters.length - 1;
         const opening = staircaseOpenings.computeForBayAndLift(lastBayIdx, liftIdx);
         if (!opening) return null;
-        const { xBottom, yFace } = opening;
+        const { xBottom } = opening;
         const pw = plank_width;
         const gap = 4;
         const landingThk = 8;
@@ -1147,6 +1146,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
           ? landingThk / 2 + 2
           : liftIdx * lift_height - landingThk / 2 - 2;
         const plankLen = bay_length_y * 0.96;
+        const landingY = 0;
         return (
           <group key={`landing-secondary-L${liftIdx}`}>
             {Array.from({ length: 3 }).map((_, pi) => {
@@ -1154,13 +1154,13 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
               return (
                 <mesh
                   key={`landing-secondary-L${liftIdx}-${pi}`}
-                  position={[plankX, yFace, landingZ]}
-                  material={materials.ladderSecondary}
+                  position={[plankX, landingY, landingZ]}
+                  material={materials.grating}
                   castShadow
                   receiveShadow
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (onPartClick) onPartClick(`Secondary landing pad L${liftIdx + 1} plank ${pi + 1}`, [plankX, yFace, landingZ], `landing-secondary-L${liftIdx}-${pi}`);
+                    if (onPartClick) onPartClick(`Secondary landing pad L${liftIdx + 1} plank ${pi + 1}`, [plankX, landingY, landingZ], `landing-secondary-L${liftIdx}-${pi}`);
                   }}
                 >
                   <boxGeometry args={[pw, plankLen, landingThk]} />
