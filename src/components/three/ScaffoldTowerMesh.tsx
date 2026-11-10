@@ -388,10 +388,14 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       const openingAtPlusX = round % 2 === 0 ? (liftIdx % 2 === 0) : (liftIdx % 2 === 1);
       const count = 2;
       const startIdx = openingAtPlusX ? planksPerBay - count : 0;
-      // Staircase TOP (exit) at opening end
+      // Staircase TOP (exit) at opening end — full bay span (for stairs)
       const xTop = openingAtPlusX ? bayEndX : bayStartX;
-      // Staircase BOTTOM (entrance) at the opposite end (full bay span for stairs)
+      // Staircase BOTTOM (entrance) at the opposite end — full bay span (for stairs)
       const xBottom = openingAtPlusX ? bayStartX : bayEndX;
+      // LADDER positions (15° from vertical): only 536mm run, not full bay
+      // Used by renderStaircaseSection (ladder). renderStairs uses xBottom/xTop (full bay).
+      const xTopLadder = xTop;
+      const xBottomLadder = openingAtPlusX ? bayEndX - staircaseRun : bayStartX + staircaseRun;
       // Y face alternates per lift (non-adjacent), offset by startOnPlusY.
       // The yFace is the CENTERLINE of the staircase. The two stringers are
       // at yFace ± railOffset (±200mm). To keep both stringers INSIDE the
@@ -409,6 +413,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       return {
         skipIndices: Array.from({ length: count }, (_, k) => startIdx + k),
         xBottom, xTop, yFace, onPlusY,
+        xBottomLadder, xTopLadder,
         trapdoorX, trapdoorWidth,
         planksPerBay, stepX, bayStartX,
       };
@@ -454,8 +459,10 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     const zBottom = liftIdx * lift_height;
     const zTop = (liftIdx + 1) * lift_height;
 
-    // Use the opening's computed xBottom/xTop/yFace (already alternated per lift)
-    const { xBottom, xTop, yFace, onPlusY } = opening;
+    // Use the LADDER positions (15° from vertical, 536mm run — not full bay)
+    const { yFace, onPlusY, xBottomLadder, xTopLadder } = opening;
+    const xBottom = xBottomLadder;
+    const xTop = xTopLadder;
 
     // Direction vector (from bottom to top, in X-Z plane)
     const dx = xTop - xBottom;
@@ -603,7 +610,8 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
             </mesh>
           );
         })}
-        {/* Guard rail — along the stringer, on the outer side */}
+        {/* Handrails on BOTH sides (inner + outer) */}
+        {/* Outer handrail */}
         <mesh
           rotation={[euler.x, euler.y, euler.z]}
           position={[midX, onPlusY ? yFace + railOffset + guardRailOffset : yFace - railOffset - guardRailOffset, midZ]}
@@ -612,21 +620,40 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         >
           <cylinderGeometry args={[12, 12, len, 16]} />
         </mesh>
-        {/* Vertical posts connecting guard rail to stringer (at each tread) */}
+        {/* Inner handrail */}
+        <mesh
+          rotation={[euler.x, euler.y, euler.z]}
+          position={[midX, onPlusY ? yFace - railOffset - guardRailOffset : yFace + railOffset + guardRailOffset, midZ]}
+          material={material}
+          castShadow
+        >
+          <cylinderGeometry args={[12, 12, len, 16]} />
+        </mesh>
+        {/* Vertical posts on BOTH sides (at each tread) */}
         {Array.from({ length: stepCount }).map((_, si) => {
           const t = (si + 1) / (stepCount + 1);
           const postX = xBottom + dx * t;
           const postZ = zBottom + dz * t;
-          const postHeight = guardRailOffset + 200; // post height from stringer to rail
+          const postHeight = guardRailOffset + 200;
           return (
-            <mesh
-              key={`${partIdPrefix}-post-L${liftIdx}-${si}`}
-              position={[postX, onPlusY ? yFace + railOffset + postHeight / 2 : yFace - railOffset - postHeight / 2, postZ]}
-              material={material}
-              castShadow
-            >
-              <cylinderGeometry args={[8, 8, postHeight, 8]} />
-            </mesh>
+            <group key={`${partIdPrefix}-posts-L${liftIdx}-${si}`}>
+              {/* Outer post */}
+              <mesh
+                position={[postX, onPlusY ? yFace + railOffset + postHeight / 2 : yFace - railOffset - postHeight / 2, postZ]}
+                material={material}
+                castShadow
+              >
+                <cylinderGeometry args={[8, 8, postHeight, 8]} />
+              </mesh>
+              {/* Inner post */}
+              <mesh
+                position={[postX, onPlusY ? yFace - railOffset - postHeight / 2 : yFace + railOffset + postHeight / 2, postZ]}
+                material={material}
+                castShadow
+              >
+                <cylinderGeometry args={[8, 8, postHeight, 8]} />
+              </mesh>
+            </group>
           );
         })}
       </group>
