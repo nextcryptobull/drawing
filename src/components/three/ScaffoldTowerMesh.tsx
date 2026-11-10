@@ -521,6 +521,74 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     );
   };
 
+  // ─── Trapdoor renderer ────────────────────────────────────────────────
+  // Renders a small hatch (~1/3 of grating) with hinge turned TOWARDS the
+  // scaffold frame (interior). The hinge is on the INNER Y edge (scaffold
+  // center side) so the trapdoor opens towards the staircase (outward).
+  const renderTrapdoor = (
+    opening: { xTop: number; yFace: number; onPlusY: boolean },
+    bayLen: number,
+    levelIdx: number,
+    z: number,
+    type: "primary" | "secondary",
+  ) => {
+    const pw = plank_width;
+    const trapThk = 50;
+    const trapLenX = bayLen / 3;
+    const trapX = opening.xTop - trapLenX / 2;
+    const trapWidthY = pw;
+    const trapY = opening.yFace;
+    const gratingTopZ = z - 2;
+    const trapZ = gratingTopZ + trapThk / 2;
+    const hingeThk = 25;
+    const hingeHeight = 35;
+    // Hinge on INNER Y edge (towards scaffold center, NOT outside)
+    const hingeY = opening.onPlusY
+      ? trapY - trapWidthY / 2 - hingeThk / 2  // +Y staircase → hinge at -Y (inner)
+      : trapY + trapWidthY / 2 + hingeThk / 2; // -Y staircase → hinge at +Y (inner)
+    const handleWidth = 60;
+    const handleHeight = 50;
+    const handleDepth = 25;
+    const label = type === "primary" ? "Trap door" : "Trap door (escape)";
+    return (
+      <group key={`trapdoor-${type}-L${levelIdx}`}>
+        <mesh
+          position={[trapX, trapY, trapZ]}
+          castShadow
+          receiveShadow
+          onClick={(e) => {
+            e.stopPropagation();
+            if (onPartClick) onPartClick(`${label} L${levelIdx + 1}`, [trapX, trapY, trapZ], `trapdoor-${type}-L${levelIdx}`);
+          }}
+        >
+          <boxGeometry args={[trapLenX, trapWidthY, trapThk]} />
+          <meshStandardMaterial color="#e85d04" roughness={0.5} metalness={0.3} />
+        </mesh>
+        {/* Hinge bar — on INNER Y edge (towards scaffold frame) */}
+        <mesh position={[trapX, hingeY, trapZ]} castShadow>
+          <boxGeometry args={[trapLenX + 10, hingeThk, trapThk + hingeHeight]} />
+          <meshStandardMaterial color="#3a3a3a" roughness={0.6} metalness={0.7} />
+        </mesh>
+        {/* Silver handle/stay on top */}
+        <mesh
+          position={[trapX, trapY, trapZ + trapThk / 2 + handleHeight / 2]}
+          castShadow
+        >
+          <boxGeometry args={[handleWidth, handleDepth, handleHeight]} />
+          <meshStandardMaterial color="#c0c0c8" roughness={0.2} metalness={0.9} />
+        </mesh>
+        {/* Handle base plate */}
+        <mesh
+          position={[trapX, trapY, trapZ + trapThk / 2 + 2]}
+          castShadow
+        >
+          <boxGeometry args={[handleWidth + 20, handleDepth + 20, 4]} />
+          <meshStandardMaterial color="#2a2a2a" roughness={0.7} metalness={0.5} />
+        </mesh>
+      </group>
+    );
+  };
+
   return (
     <group>
       {/* ---- Standards (vertical tubes + rosettes + spigot) ---- */}
@@ -1006,92 +1074,29 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         );
       })()}
 
-      {/* ---- Trapdoors (ladder traps) — one per lift at staircase opening ---- */}
-      {/* The trapdoor is a SMALL hatch (~1/3 of the grating area), NOT the
-          entire platform. It covers only the staircase opening — the section
-          where the staircase passes through. Like the reference photo:
-          a small rectangular hatch with a handle, sitting on top of the
-          platform at the staircase exit position.
+      {/* ---- Trapdoors (ladder traps) — one per lift per staircase ---- */}
+      {/* Small hatch (~1/3 of grating) with hinge turned TOWARDS the scaffold
+          frame (interior), not outside. The hinge is on the INNER Y edge
+          (scaffold center side) so the trapdoor opens towards the staircase
+          (outward) — the worker lifts the handle from inside the scaffold.
+          Renders for BOTH primary (bay 0) and secondary (last bay) staircases. */}
 
-          Dimensions:
-          - X (length): ~1/3 of bay_length_x (the staircase opening width)
-          - Y (width): 1 plank width (~320mm)
-          - Z (thickness): 50mm raised panel
-
-          Positioned at the staircase exit (top of the inclined staircase),
-          at the staircase's Y face. */}
+      {/* Primary trapdoors (access #1) */}
       {hasPrimaryStaircase && rosetteZs.map((z, levelIdx) => {
         const opening = staircaseOpenings.computeForBayAndLift(0, levelIdx, true);
         if (!opening) return null;
-        const bayLen0 = bayLayout.bayLengths[0];
-        const pw = plank_width;
-        const trapThk = 50; // 50mm thick — clearly visible raised panel
+        const bayLen = bayLayout.bayLengths[0];
+        return renderTrapdoor(opening, bayLen, levelIdx, z, "primary");
+      })}
 
-        // Trapdoor X: ~1/3 of bay length, centered on the staircase exit (xTop)
-        const trapLenX = bayLen0 / 3;
-        const trapX = opening.xTop - trapLenX / 2;
-
-        // Trapdoor Y: 1 plank width, at the staircase Y face
-        const trapWidthY = pw;
-        const trapY = opening.yFace;
-
-        // Top of gratings is at z - 2. Place trapdoor on top.
-        const gratingTopZ = z - 2;
-        const trapZ = gratingTopZ + trapThk / 2;
-
-        // Hinge bar on the staircase-side edge (the outer Y edge)
-        const hingeThk = 25;
-        const hingeHeight = 35;
-        const hingeY = opening.onPlusY
-          ? trapY + trapWidthY / 2 + hingeThk / 2
-          : trapY - trapWidthY / 2 - hingeThk / 2;
-
-        // Silver handle/stay on top
-        const handleWidth = 60;
-        const handleHeight = 50;
-        const handleDepth = 25;
-
-        return (
-          <group key={`trapdoor-L${levelIdx}`}>
-            {/* Main trapdoor panel — BRIGHT ORANGE, small hatch (~1/3 of grating) */}
-            <mesh
-              position={[trapX, trapY, trapZ]}
-              castShadow
-              receiveShadow
-              onClick={(e) => {
-                e.stopPropagation();
-                if (onPartClick) onPartClick(`Trap door L${levelIdx + 1}`, [trapX, trapY, trapZ], `trapdoor-L${levelIdx}`);
-              }}
-            >
-              <boxGeometry args={[trapLenX, trapWidthY, trapThk]} />
-              <meshStandardMaterial color="#e85d04" roughness={0.5} metalness={0.3} />
-            </mesh>
-            {/* Hinge bar — dark gray, on the outer Y edge (staircase side) */}
-            <mesh
-              position={[trapX, hingeY, trapZ]}
-              castShadow
-            >
-              <boxGeometry args={[trapLenX + 10, hingeThk, trapThk + hingeHeight]} />
-              <meshStandardMaterial color="#3a3a3a" roughness={0.6} metalness={0.7} />
-            </mesh>
-            {/* Silver handle/stay on top — like the reference image */}
-            <mesh
-              position={[trapX, trapY, trapZ + trapThk / 2 + handleHeight / 2]}
-              castShadow
-            >
-              <boxGeometry args={[handleWidth, handleDepth, handleHeight]} />
-              <meshStandardMaterial color="#c0c0c8" roughness={0.2} metalness={0.9} />
-            </mesh>
-            {/* Handle base plate */}
-            <mesh
-              position={[trapX, trapY, trapZ + trapThk / 2 + 2]}
-              castShadow
-            >
-              <boxGeometry args={[handleWidth + 20, handleDepth + 20, 4]} />
-              <meshStandardMaterial color="#2a2a2a" roughness={0.7} metalness={0.5} />
-            </mesh>
-          </group>
-        );
+      {/* Secondary trapdoors (access #2) */}
+      {secondary_access && rosetteZs.map((z, levelIdx) => {
+        const lastBayIdx = bayLayout.bayCenters.length - 1;
+        if (lastBayIdx === 0) return null; // same as primary, skip
+        const opening = staircaseOpenings.computeForBayAndLift(lastBayIdx, levelIdx, false);
+        if (!opening) return null;
+        const bayLen = bayLayout.bayLengths[lastBayIdx];
+        return renderTrapdoor(opening, bayLen, levelIdx, z, "secondary");
       })}
 
       {/* ---- Handrails + middle rails on staircase bays ---- */}
