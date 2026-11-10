@@ -1209,23 +1209,21 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         );
       })()}
 
-      {/* ---- Trapdoors (ladder traps) — one per lift per staircase ---- */}
-      {/* Small hatch (~1/3 of grating) with hinge turned TOWARDS the scaffold
-          frame (interior), not outside. The hinge is on the INNER Y edge
-          (scaffold center side) so the trapdoor opens towards the staircase
-          (outward) — the worker lifts the handle from inside the scaffold.
-          Renders for BOTH primary (bay 0) and secondary (last bay) staircases. */}
+      {/* ---- Trapdoors (ladder traps) — ONLY for access towers, NOT staircase towers ---- */}
+      {/* Access towers use ladders + trapdoors (hatch you open to pass through).
+          Staircase towers use stairs + gratings as stepping plates — no trapdoors.
+          Rendered for BOTH primary (bay 0) and secondary (last bay) staircases. */}
 
-      {/* Primary trapdoors (access #1) */}
-      {hasPrimaryStaircase && rosetteZs.map((z, levelIdx) => {
+      {/* Primary trapdoors (access #1) — skipped when staircase_tower */}
+      {!staircase_tower && hasPrimaryStaircase && rosetteZs.map((z, levelIdx) => {
         const opening = staircaseOpenings.computeForBayAndLift(0, levelIdx, true);
         if (!opening) return null;
         const bayLen = bayLayout.bayLengths[0];
         return renderTrapdoor(opening, bayLen, levelIdx, z, "primary");
       })}
 
-      {/* Secondary trapdoors (access #2) */}
-      {secondary_access && rosetteZs.map((z, levelIdx) => {
+      {/* Secondary trapdoors (access #2) — skipped when staircase_tower */}
+      {!staircase_tower && secondary_access && rosetteZs.map((z, levelIdx) => {
         const lastBayIdx = bayLayout.bayCenters.length - 1;
         if (lastBayIdx === 0) return null; // same as primary, skip
         const opening = staircaseOpenings.computeForBayAndLift(lastBayIdx, levelIdx, false);
@@ -1319,14 +1317,10 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         return <group>{rails}</group>;
       })()}
 
-      {/* ---- Landing pads (3 planks) at the bottom of each primary staircase ---- */}
-      {/* SAFETY: each staircase bottom needs a 3-plank-wide solid standing area
-          for safe access. These are rendered at the platform level below each
-          staircase entrance (or at ground level for lift 0).
-          The landing spans 3 plank widths along X, centered on xBottom,
-          and spans the full bay width along Y. Aligned within the scaffold
-          frame (bay center Y = 0), same gray material as regular gratings. */}
-      {hasPrimaryStaircase && Array.from({ length: num_lifts }).map((_, liftIdx) => {
+      {/* ---- Landing pads (3 planks) — ONLY for access towers (ladders), NOT staircase towers ---- */}
+      {/* Access towers with ladders need 3-plank landing pads for safe standing.
+          Staircase towers use gratings as stepping plates — no separate landing pads. */}
+      {!staircase_tower && hasPrimaryStaircase && Array.from({ length: num_lifts }).map((_, liftIdx) => {
         const opening = staircaseOpenings.computeForBayAndLift(0, liftIdx, true);
         if (!opening) return null;
         const { xBottom, yFace } = opening;
@@ -1367,8 +1361,8 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         );
       })}
 
-      {/* ---- Landing pads (3 planks) at the bottom of each secondary staircase ---- */}
-      {secondary_access && Array.from({ length: num_lifts }).map((_, liftIdx) => {
+      {/* ---- Landing pads (3 planks) at the bottom of each secondary staircase — access towers only ---- */}
+      {!staircase_tower && secondary_access && Array.from({ length: num_lifts }).map((_, liftIdx) => {
         const lastBayIdx = bayLayout.bayCenters.length - 1;
         const opening = staircaseOpenings.computeForBayAndLift(lastBayIdx, liftIdx, false);
         if (!opening) return null;
