@@ -1364,6 +1364,8 @@ export const TOWER_PRESETS: Array<{
   input: string;
   description: string;
   sections?: Array<{ bays: number; bay_length: number }>;
+  staircase_type?: "ladder" | "stairs";
+  include_ladder?: boolean;
 }> = [
   {
     label: "Mobile tower",
@@ -1379,6 +1381,13 @@ export const TOWER_PRESETS: Array<{
     label: "Access tower",
     input: "2x2x6m",
     description: "Big access tower, 9 standards, 6m high",
+  },
+  {
+    label: "Staircase tower",
+    input: "2x2x6m",
+    description: "Staircase tower with real stairs (flat treads), 6m high",
+    include_ladder: true,
+    staircase_type: "stairs",
   },
   {
     label: "Façade scaffold",

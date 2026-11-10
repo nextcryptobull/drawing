@@ -257,16 +257,21 @@ export function TowerAssembler() {
                                     size="sm"
                                     onClick={() => {
                                       setInput(preset.input);
-                                      const p = preset as { sections?: Array<{ bays: number; bay_length: number }> };
-                                      if (p.sections && p.sections.length > 0) {
-                                        setOverrides({ sections: p.sections });
-                                      } else {
-                                        setOverrides((prev) => {
-                                          const { sections: _omit, ...rest } = prev;
-                                          void _omit;
-                                          return rest;
-                                        });
-                                      }
+                                      const p = preset as {
+                                        sections?: Array<{ bays: number; bay_length: number }>;
+                                        staircase_type?: "ladder" | "stairs";
+                                        include_ladder?: boolean;
+                                      };
+                                      setOverrides((prev) => {
+                                        const { sections: _omit, ...rest } = prev;
+                                        void _omit;
+                                        return {
+                                          ...rest,
+                                          ...(p.sections && p.sections.length > 0 ? { sections: p.sections } : {}),
+                                          ...(p.include_ladder != null ? { include_ladder: p.include_ladder } : {}),
+                                          ...(p.staircase_type != null ? { staircase_type: p.staircase_type } : {}),
+                                        };
+                                      });
                                     }}
                                     className={cn(
                                       "h-auto py-1 text-xs",
