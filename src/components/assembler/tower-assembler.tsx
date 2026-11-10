@@ -261,6 +261,7 @@ export function TowerAssembler() {
                                         sections?: Array<{ bays: number; bay_length: number }>;
                                         staircase_type?: "ladder" | "stairs";
                                         include_ladder?: boolean;
+                                        staircase_tower?: boolean;
                                       };
                                       setOverrides((prev) => {
                                         const { sections: _omit, ...rest } = prev;
@@ -270,6 +271,7 @@ export function TowerAssembler() {
                                           ...(p.sections && p.sections.length > 0 ? { sections: p.sections } : {}),
                                           ...(p.include_ladder != null ? { include_ladder: p.include_ladder } : {}),
                                           ...(p.staircase_type != null ? { staircase_type: p.staircase_type } : {}),
+                                          ...(p.staircase_tower != null ? { staircase_tower: p.staircase_tower } : {}),
                                         };
                                       });
                                     }}

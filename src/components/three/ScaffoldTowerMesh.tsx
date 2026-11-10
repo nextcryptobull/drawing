@@ -54,6 +54,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     disabled_platform_levels = [],
     include_ladder = false,
     staircase_type = "stairs",
+    staircase_tower = false,
     plank_width = 320,
     secondary_access = false,
     sections,
@@ -64,6 +65,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     disabled_platform_levels?: number[];
     include_ladder?: boolean;
     staircase_type?: "ladder" | "stairs";
+    staircase_tower?: boolean;
     plank_width?: 320 | 230;
     secondary_access?: boolean;
     sections?: Array<{ bays: number; bay_length: number }>;
@@ -73,7 +75,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
   // staircase must ALSO be present — it's the main access, secondary is the escape.
   // This ensures both staircases render when secondary_access auto-triggers,
   // even if the user didn't manually enable "Ladder (access side)".
-  const hasPrimaryStaircase = include_ladder || secondary_access;
+  const hasPrimaryStaircase = include_ladder || secondary_access || staircase_tower;
 
   const materials = useMemo(
     () => ({
@@ -1009,17 +1011,18 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
             const isSecondaryBay = i === bayLayout.bayCenters.length - 1;
             const primaryHasStaircase = isPrimaryBay && hasPrimaryStaircase;
             const secondaryHasStaircase = isSecondaryBay && secondary_access && !isPrimaryBay;
+            // Staircase tower: ALL bays have staircases (alternating per lift)
+            const thisBayHasStaircase = staircase_tower || primaryHasStaircase || secondaryHasStaircase;
 
-            if (primaryHasStaircase || secondaryHasStaircase) {
+            if (thisBayHasStaircase) {
               // Staircase present: skip 2 planks at the staircase's Y face.
-              // Primary: even lifts at +Y (last 2 planks), odd at -Y (first 2)
-              // Secondary: opposite of primary
-              const startOnPlusY = primaryHasStaircase;
+              // In staircase_tower mode: even bays on +Y, odd bays on -Y (per lift)
+              // In normal mode: primary on +Y, secondary on -Y
+              const startOnPlusY = staircase_tower
+                ? (i + levelIdx) % 2 === 0  // alternate per bay AND lift
+                : primaryHasStaircase;
               const opening = staircaseOpenings.computeForBayAndLift(i, levelIdx, startOnPlusY);
               if (opening) {
-                // The opening is at the staircase's Y face.
-                // onPlusY = true → opening at +Y end (last 2 planks)
-                // onPlusY = false → opening at -Y end (first 2 planks)
                 const count = 2;
                 const startIdx = opening.onPlusY ? planksPerBay - count : 0;
                 for (let k = 0; k < count; k++) skipIndices.add(startIdx + k);
@@ -1375,33 +1378,33 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         );
       })}
 
-      {/* ---- Primary staircase sections (yellow, access bay 0) ---- */}
-      {/* Renders either 'stairs' (flat horizontal treads) or 'ladder' (inclined
-          steps at 15°) based on staircase_type config. Default = 'stairs'. */}
-      {hasPrimaryStaircase && Array.from({ length: num_lifts }).map((_, liftIdx) => {
+      {/* ---- Staircase tower: stairs in ALL bays (alternating per lift) ---- */}
+      {/* In staircase_tower mode, every bay has a staircase. The Y face alternates
+          per bay AND per lift, creating a zigzag path: workers go up in bay 0,
+          walk across the landing to bay 1, go up, walk back to bay 0, etc. */}
+      {staircase_tower && bayLayout.bayCenters.map((_, bayIdx) =>
+        Array.from({ length: num_lifts }).map((_, liftIdx) => {
+          const renderFn = staircase_type === "stairs" ? renderStairs : renderStaircaseSection;
+          // Alternate Y face per bay AND per lift
+          const startOnPlusY = (bayIdx + liftIdx) % 2 === 0;
+          const color = bayIdx % 2 === 0 ? materials.ladder : materials.ladderSecondary;
+          const name = bayIdx % 2 === 0 ? "Staircase" : "Staircase (alt)";
+          const prefix = `staircase-tower-bay${bayIdx}`;
+          return renderFn(bayIdx, liftIdx, color, name, prefix, startOnPlusY);
+        })
+      )}
+
+      {/* ---- Primary staircase (access bay 0 only, when NOT staircase_tower) ---- */}
+      {!staircase_tower && hasPrimaryStaircase && Array.from({ length: num_lifts }).map((_, liftIdx) => {
         const renderFn = staircase_type === "stairs" ? renderStairs : renderStaircaseSection;
-        return renderFn(
-          0,
-          liftIdx,
-          materials.ladder,
-          "Primary staircase",
-          "staircase-primary",
-          true,
-        );
+        return renderFn(0, liftIdx, materials.ladder, "Primary staircase", "staircase-primary", true);
       })}
 
-      {/* ---- Secondary staircase sections (orange, escape, last bay) ---- */}
-      {secondary_access && Array.from({ length: num_lifts }).map((_, liftIdx) => {
+      {/* ---- Secondary staircase (escape, last bay only, when NOT staircase_tower) ---- */}
+      {!staircase_tower && secondary_access && Array.from({ length: num_lifts }).map((_, liftIdx) => {
         const lastBayIdx = bayLayout.bayCenters.length - 1;
         const renderFn = staircase_type === "stairs" ? renderStairs : renderStaircaseSection;
-        return renderFn(
-          lastBayIdx,
-          liftIdx,
-          materials.ladderSecondary,
-          "Secondary staircase (escape)",
-          "staircase-secondary",
-          false,
-        );
+        return renderFn(lastBayIdx, liftIdx, materials.ladderSecondary, "Secondary staircase (escape)", "staircase-secondary", false);
       })}
     </group>
   );

@@ -40,6 +40,8 @@ export interface BayConfig {
   include_ladder: boolean;
   /** Staircase type: 'ladder' (15° inclined, compact) or 'stairs' (proper staircase with flat treads) */
   staircase_type: "ladder" | "stairs";
+  /** Staircase tower mode: stairs in ALL bays (not just access bay), alternating per lift */
+  staircase_tower: boolean;
   /** Plank width: 320mm (heavy-duty) or 230mm (light) */
   plank_width: 320 | 230;
   /** Secondary access ladder (auto at >=20m height or length) */
@@ -625,6 +627,7 @@ export function assembleTower(
     disabled_platform_levels: overrides?.disabled_platform_levels ?? [],
     include_ladder: overrides?.include_ladder ?? false,
     staircase_type: overrides?.staircase_type ?? "stairs",
+    staircase_tower: overrides?.staircase_tower ?? false,
     plank_width: overrides?.plank_width ?? 320,
     secondary_access,
     sections,
@@ -1342,6 +1345,7 @@ export function assemblyToTowerConfig(result: AssemblyResult) {
     disabled_platform_levels: result.config.disabled_platform_levels,
     include_ladder: result.config.include_ladder,
     staircase_type: result.config.staircase_type,
+    staircase_tower: result.config.staircase_tower,
     plank_width: result.config.plank_width,
     secondary_access: result.config.secondary_access,
     sections: result.config.sections,
@@ -1366,6 +1370,7 @@ export const TOWER_PRESETS: Array<{
   sections?: Array<{ bays: number; bay_length: number }>;
   staircase_type?: "ladder" | "stairs";
   include_ladder?: boolean;
+  staircase_tower?: boolean;
 }> = [
   {
     label: "Mobile tower",
@@ -1385,9 +1390,10 @@ export const TOWER_PRESETS: Array<{
   {
     label: "Staircase tower",
     input: "2x2x6m",
-    description: "Staircase tower with real stairs (flat treads), 6m high",
+    description: "Dedicated staircase tower — stairs in every bay, 6m high",
     include_ladder: true,
     staircase_type: "stairs",
+    staircase_tower: true,
   },
   {
     label: "Façade scaffold",
