@@ -268,10 +268,14 @@ export function TowerAssembler() {
                                         void _omit;
                                         return {
                                           ...rest,
+                                          // Clear sections unless the preset provides them
                                           ...(p.sections && p.sections.length > 0 ? { sections: p.sections } : {}),
+                                          // Reset staircase_tower: true only if preset sets it, otherwise false
+                                          staircase_tower: p.staircase_tower ?? false,
+                                          // Reset staircase_type: stairs only if preset sets it, otherwise ladder
+                                          staircase_type: p.staircase_type ?? "ladder",
+                                          // include_ladder: only override if preset specifies it
                                           ...(p.include_ladder != null ? { include_ladder: p.include_ladder } : {}),
-                                          ...(p.staircase_type != null ? { staircase_type: p.staircase_type } : {}),
-                                          ...(p.staircase_tower != null ? { staircase_tower: p.staircase_tower } : {}),
                                         };
                                       });
                                     }}
