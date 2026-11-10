@@ -29,6 +29,7 @@ interface FocusTarget {
   name: string;
   pos: [number, number, number]; // tower coords (Z-up, mm)
   id?: string; // unique part ID for removal
+  distance?: number; // custom focus distance (in world units). If omitted, uses camDist * 0.15
 }
 
 /**
@@ -75,7 +76,9 @@ function CameraController({
     const worldZ = -ty * scale; // old Y → new Z (depth, negated)
 
     // Move camera to be close to the target, slightly offset
-    const focusDist = Math.max(camDist * 0.15, 1.5); // close-up distance, scales with tower
+    // Use custom distance if provided (for small parts like trapdoors),
+    // otherwise scale with tower size.
+    const focusDist = focusTarget.distance ?? Math.max(camDist * 0.15, 1.5);
     camera.position.set(
       worldX + focusDist * 0.5,
       worldY + focusDist * 0.3,
@@ -247,7 +250,23 @@ export function TowerViewer({ config, onRemovePart, removedParts }: { config: To
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => setFocusTarget({ name: "Trap door", pos: [0, 0, debounced.num_lifts * debounced.lift_height] })}
+            onClick={() => {
+              // Focus on the trapdoor at bay 0 (first bay), top lift level.
+              // Trapdoor is at bay 0's center X, at the staircase's Y face,
+              // at the top platform level.
+              const tX = debounced.bays_x * debounced.bay_length_x;
+              const tY = debounced.bays_y * debounced.bay_length_y;
+              const tH = debounced.num_lifts * debounced.lift_height;
+              // Bay 0 center X = -towerX/2 + bay_length_x/2
+              const trapX = -tX / 2 + debounced.bay_length_x / 2;
+              // Trapdoor is at the staircase Y face (towerY/2 - 280 for primary)
+              const trapY = tY / 2 - 280;
+              // Top platform level
+              const trapZ = tH;
+              // Use a small custom distance so the camera zooms in close enough
+              // to see the trapdoor (which is only ~2.5m × 0.6m)
+              setFocusTarget({ name: "Trap door (bay 0, top level)", pos: [trapX, trapY, trapZ], distance: 0.5 });
+            }}
             className="bg-black/60 text-white/90 hover:bg-black/80"
           >
             <Focus className="mr-1 size-3" />
