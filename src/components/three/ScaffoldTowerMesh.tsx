@@ -354,7 +354,13 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     const angleFromVertical = 15 * (Math.PI / 180); // 15° in radians
     const staircaseRun = lift_height * Math.tan(angleFromVertical); // horizontal run
 
-    const computeForBayAndLift = (bayIdx: number, liftIdx: number) => {
+    // `startOnPlusY` controls which face the FIRST lift (liftIdx 0) is on.
+    // Primary staircase: startOnPlusY=true  → lift 0 on +Y, lift 1 on -Y, ...
+    // Secondary staircase: startOnPlusY=false → lift 0 on -Y, lift 1 on +Y, ...
+    // This ensures primary and secondary are ALWAYS on opposite faces at any
+    // given lift (non-adjacent), so the primary is never occluded by the
+    // secondary's bay geometry.
+    const computeForBayAndLift = (bayIdx: number, liftIdx: number, startOnPlusY = true) => {
       if (bayIdx >= bayLayout.bayCenters.length) return null;
       const bayLenX = bayLayout.bayLengths[bayIdx];
       const planksPerBay = Math.max(2, Math.floor((bayLenX + gap) / (pw + gap)));
@@ -371,8 +377,10 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       const xTop = openingAtPlusX ? bayEndX : bayStartX;
       // Staircase BOTTOM (entrance) is `staircaseRun` mm inward from the top
       const xBottom = openingAtPlusX ? bayEndX - staircaseRun : bayStartX + staircaseRun;
-      // Y face alternates per lift (non-adjacent)
-      const onPlusY = liftIdx % 2 === 0;
+      // Y face alternates per lift (non-adjacent), offset by startOnPlusY
+      // Primary (true):  even=+Y, odd=-Y
+      // Secondary (false): even=-Y, odd=+Y
+      const onPlusY = startOnPlusY ? (liftIdx % 2 === 0) : (liftIdx % 2 === 1);
       const yFace = onPlusY ? (towerY / 2 - 80) : -(towerY / 2 - 80);
       // Trapdoor position (at the top of the staircase = the opening)
       const trapdoorX = bayStartX + (startIdx + count / 2) * stepX;
@@ -415,7 +423,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
   ) => {
     if (bayIdx >= bayLayout.bayCenters.length) return null;
 
-    const opening = staircaseOpenings.computeForBayAndLift(bayIdx, liftIdx);
+    const opening = staircaseOpenings.computeForBayAndLift(bayIdx, liftIdx, startOnPlusY);
     if (!opening) return null;
 
     const railOffset = 200; // 400mm between stringers → ±200mm
@@ -818,8 +826,10 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
               const secondaryHasStaircase = isSecondaryBay && secondary_access && !isPrimaryBay;
 
               if (primaryHasStaircase || secondaryHasStaircase) {
-                // Staircase present: skip 2 planks at alternating end per lift
-                const opening = staircaseOpenings.computeForBayAndLift(i, levelIdx);
+                // Staircase present: skip 2 planks at alternating end per lift.
+                // Pass startOnPlusY: primary=true, secondary=false (opposite faces)
+                const startOnPlusY = primaryHasStaircase;
+                const opening = staircaseOpenings.computeForBayAndLift(i, levelIdx, startOnPlusY);
                 if (opening) {
                   for (const idx of opening.skipIndices) skipIndices.add(idx);
                 }
@@ -1136,7 +1146,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       {/* ---- Landing pads (3 planks) at the bottom of each secondary staircase ---- */}
       {secondary_access && Array.from({ length: num_lifts }).map((_, liftIdx) => {
         const lastBayIdx = bayLayout.bayCenters.length - 1;
-        const opening = staircaseOpenings.computeForBayAndLift(lastBayIdx, liftIdx);
+        const opening = staircaseOpenings.computeForBayAndLift(lastBayIdx, liftIdx, false);
         if (!opening) return null;
         const { xBottom } = opening;
         const pw = plank_width;
