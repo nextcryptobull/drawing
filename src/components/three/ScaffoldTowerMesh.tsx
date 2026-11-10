@@ -1007,20 +1007,20 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       })()}
 
       {/* ---- Trapdoors (ladder traps) — one per lift at staircase opening ---- */}
-      {/* Styled like the reference image: dark anti-slip platform panel.
-          The trapdoor is a solid dark panel (charcoal/black) sitting on top
-          of the platform at the staircase exit opening. It represents the
-          hinged hatch that workers open to pass through the platform via
-          the staircase.
-          Rendered at TOP LEVEL (not inside toeboards block) so it always
-          shows when hasPrimaryStaircase is true, regardless of toeboard setting. */}
+      {/* Styled like the reference image: a visible hatch panel with a silver
+          handle/stay. The trapdoor is BRIGHT ORANGE/RED so it's clearly
+          visible against the gray gratings. It has:
+          - A thick raised panel (50mm) sitting on top of the platform
+          - A silver metal handle/stay on top (like the reference image)
+          - A hinge bar on the staircase-side edge
+          Rendered at TOP LEVEL so it always shows when hasPrimaryStaircase is true. */}
       {hasPrimaryStaircase && rosetteZs.map((z, levelIdx) => {
         const opening = staircaseOpenings.computeForBayAndLift(0, levelIdx, true);
         if (!opening) return null;
         const bayLen0 = bayLayout.bayLengths[0];
         const pw = plank_width;
         const gap = 4;
-        const trapThk = 15; // 15mm thick anti-slip panel
+        const trapThk = 50; // 50mm thick — clearly visible raised panel
         const planksPerBay = Math.max(2, Math.floor((bay_length_y + gap) / (pw + gap)));
         const stepY = bay_length_y / planksPerBay;
         const bayStartY = -towerY / 2;
@@ -1028,16 +1028,21 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         const startIdx = opening.onPlusY ? planksPerBay - count : 0;
         const trapY = bayStartY + (startIdx + count / 2) * stepY;
         const trapX = bayLayout.standardXs[0] + bayLen0 / 2;
-        // Raise 20mm above grating surface so clearly visible
-        const trapZ = z + 10;
+        // Top of gratings is at z - 2. Place trapdoor base at z - 2, center at z - 2 + trapThk/2
+        const gratingTopZ = z - 2;
+        const trapZ = gratingTopZ + trapThk / 2;
         const trapLenX = bayLen0 * 0.94;
         const trapWidthY = count * stepY * 0.90;
-        // Hinge bracket on the staircase-side edge (thick dark bar)
-        const hingeThk = 25;
-        const hingeHeight = 30;
+        // Hinge bar on the staircase-side edge
+        const hingeThk = 30;
+        const hingeHeight = 40;
+        // Silver handle/stay on top of the trapdoor (like reference image)
+        const handleWidth = 80;
+        const handleHeight = 60; // tall, visible
+        const handleDepth = 30;
         return (
           <group key={`trapdoor-L${levelIdx}`}>
-            {/* Main trapdoor panel — dark anti-slip surface (charcoal/black) */}
+            {/* Main trapdoor panel — BRIGHT ORANGE so clearly visible */}
             <mesh
               position={[trapX, trapY, trapZ]}
               castShadow
@@ -1048,32 +1053,37 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
               }}
             >
               <boxGeometry args={[trapLenX, trapWidthY, trapThk]} />
-              {/* Dark charcoal anti-slip surface — matches reference image */}
-              <meshStandardMaterial color="#1a1a1e" roughness={0.9} metalness={0.2} />
+              {/* Bright orange — high visibility safety hatch */}
+              <meshStandardMaterial color="#e85d04" roughness={0.5} metalness={0.3} />
             </mesh>
-            {/* Hinge bracket — thick dark bar on the staircase-side Y edge */}
+            {/* Hinge bar — dark gray, on the staircase-side Y edge */}
             <mesh
               position={[
                 trapX,
                 opening.onPlusY ? trapY + trapWidthY / 2 + hingeThk / 2 : trapY - trapWidthY / 2 - hingeThk / 2,
-                trapZ + trapThk / 2,
+                trapZ,
               ]}
               castShadow
             >
-              <boxGeometry args={[trapLenX + 10, hingeThk, hingeHeight]} />
-              <meshStandardMaterial color="#2a2a30" roughness={0.7} metalness={0.5} />
+              <boxGeometry args={[trapLenX + 10, hingeThk, trapThk + hingeHeight]} />
+              <meshStandardMaterial color="#3a3a3a" roughness={0.6} metalness={0.7} />
             </mesh>
-            {/* Handle — small dark protrusion on the opposite side from hinge */}
+            {/* Silver handle/stay on top — like the reference image's silver loop */}
             <mesh
-              position={[
-                trapX,
-                opening.onPlusY ? trapY - trapWidthY / 2 - 8 : trapY + trapWidthY / 2 + 8,
-                trapZ + trapThk / 2 + 5,
-              ]}
+              position={[trapX, trapY, trapZ + trapThk / 2 + handleHeight / 2]}
               castShadow
             >
-              <boxGeometry args={[60, 16, 20]} />
-              <meshStandardMaterial color="#2a2a30" roughness={0.7} metalness={0.5} />
+              <boxGeometry args={[handleWidth, handleDepth, handleHeight]} />
+              {/* Silver/metallic — matches the reference image's silver handle */}
+              <meshStandardMaterial color="#c0c0c8" roughness={0.2} metalness={0.9} />
+            </mesh>
+            {/* Handle base plate — small dark mounting plate */}
+            <mesh
+              position={[trapX, trapY, trapZ + trapThk / 2 + 2]}
+              castShadow
+            >
+              <boxGeometry args={[handleWidth + 20, handleDepth + 20, 4]} />
+              <meshStandardMaterial color="#2a2a2a" roughness={0.7} metalness={0.5} />
             </mesh>
           </group>
         );
