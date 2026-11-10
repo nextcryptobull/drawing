@@ -112,11 +112,17 @@ const STANDARD_WEIGHTS: Record<number, number> = {
 /**
  * Ledger weights (kg) by length (mm) — from BOM blank.xlsx catalog.
  * Source rows r17–r28 (MDCLED0xxx).
+ *
+ * NOTE: spreadsheet row r19 says MDCLED0650 (650mm) but the attached catalog
+ * reference image shows MDCLED0680 (680mm). Both entries are kept here so the
+ * BOM works regardless of which length a user picks. The UI filler buttons
+ * use CATALOG_LEDGER_LENGTHS (which lists 680 per the image).
  */
 const LEDGER_WEIGHTS: Record<number, number> = {
   390: 2.00,    // MDCLED0390
   610: 2.41,    // MDCLED0610
-  650: 2.90,    // MDCLED0650
+  650: 2.90,    // MDCLED0650  (spreadsheet)
+  680: 2.97,    // MDCLED0680  (image — interpolated between 610/690)
   690: 3.05,    // MDCLED0690
   900: 3.74,    // MDCLED0900
   1090: 4.43,   // MDCLED1090
@@ -127,6 +133,28 @@ const LEDGER_WEIGHTS: Record<number, number> = {
   2134: 8.06,   // MDCLED2134
   2570: 9.60,   // MDCLED2570
 };
+
+/**
+ * Catalog ledger lengths (mm) — the 12 standard sizes from the attached
+ * catalog reference image. Used by the UI sections editor to render one
+ * "Add filler" button per standard length.
+ *
+ * Each entry includes the catalog item code (MDCLED0xxx) for traceability.
+ */
+export const CATALOG_LEDGER_LENGTHS: Array<{ length: number; code: string }> = [
+  { length: 390, code: "MDCLED0390" },
+  { length: 610, code: "MDCLED0610" },
+  { length: 680, code: "MDCLED0680" },
+  { length: 690, code: "MDCLED0690" },
+  { length: 900, code: "MDCLED0900" },
+  { length: 1090, code: "MDCLED1090" },
+  { length: 1220, code: "MDCLED1220" },
+  { length: 1500, code: "MDCLED1500" },
+  { length: 1570, code: "MDCLED1570" },
+  { length: 2070, code: "MDCLED2070" },
+  { length: 2134, code: "MDCLED2134" },
+  { length: 2570, code: "MDCLED2570" },
+];
 
 /**
  * Reinforced ledger weights (kg) — heavier variants for X-bay long spans.

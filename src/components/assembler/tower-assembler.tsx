@@ -25,6 +25,7 @@ import {
   assemblyToTowerConfig,
   formatDimensions,
   TOWER_PRESETS,
+  CATALOG_LEDGER_LENGTHS,
   type BayConfig,
 } from "@/lib/tower-assembler";
 
@@ -345,23 +346,24 @@ export function TowerAssembler() {
                                 </div>
                               ))}
 
-                              {/* Quick-add filler buttons */}
+                              {/* Quick-add filler buttons — one per catalog ledger length */}
                               <div className="flex flex-wrap gap-1.5 pt-1">
                                 <span className="self-center text-[10px] text-muted-foreground">Add filler:</span>
-                                {[
-                                  { label: "+3m", len: 3000 },
-                                  { label: "+4m", len: 3070 },
-                                  { label: "+6m", len: 5640 },
-                                ].map((preset) => (
-                                  <Button key={preset.label} variant="outline" size="sm" className="h-7 px-2 text-xs"
-                                    onClick={() => { const secs = [...overrides.sections!, { bays: 1, bay_length: preset.len }]; updateFromConfig({ sections: secs }); }}>
-                                    {preset.label}
+                                {CATALOG_LEDGER_LENGTHS.map((cat) => (
+                                  <Button
+                                    key={cat.code}
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs font-mono"
+                                    title={`${cat.code}  →  adds 1 bay × ${(cat.length / 1000).toFixed(2)}m`}
+                                    onClick={() => {
+                                      const secs = [...overrides.sections!, { bays: 1, bay_length: cat.length }];
+                                      updateFromConfig({ sections: secs });
+                                    }}
+                                  >
+                                    {(cat.length / 1000).toFixed(2)}m
                                   </Button>
                                 ))}
-                                <Button variant="outline" size="sm" className="h-7 px-2 text-xs"
-                                  onClick={() => { const secs = [...overrides.sections!, { bays: 1, bay_length: 2570 }]; updateFromConfig({ sections: secs }); }}>
-                                  <Plus className="mr-0.5 size-3" /> Custom
-                                </Button>
                               </div>
 
                               <div className="flex items-center justify-between border-t pt-2">
