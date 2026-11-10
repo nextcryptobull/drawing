@@ -91,67 +91,186 @@ const STANDARD_BAY_WIDTHS = [1090, 1400, 1520, 1570, 2000, 2500];
 const STANDARD_LIFT_HEIGHTS = [1000, 1500, 2000, 2500];
 
 /**
- * Standard ringlock standard (vertical) lengths (mm).
+ * Standard scaffold (vertical tube) lengths (mm) — catalog MDCSTA0xxx.
  * A tower taller than 3m must be built from multiple stacked standards.
- * Max single standard = 3m (per ACE Scaffold catalog).
+ * Max single standard = 3m.
  */
-const STANDARD_LENGTHS = [500, 1000, 1500, 2000, 2500, 3000];
+const STANDARD_LENGTHS = [500, 1000, 1500, 2000, 3000];
 
 /**
- * Standard ringlock standard weights (kg) — from ACE Scaffold catalog.
+ * Standard scaffold weights (kg) — from BOM blank.xlsx catalog (cuplock-style).
+ * Source rows r11–r15 (MDCSTA0xxx).
  */
 const STANDARD_WEIGHTS: Record<number, number> = {
-  500: 3.32,
-  1000: 5.66,
-  1500: 6.89,
-  2000: 10.35,
-  2500: 12.65,
-  3000: 15.03,
+  500: 2.35,    // MDCSTA0500  STANDARD 1 cup   500
+  1000: 4.70,   // MDCSTA1000  STANDARD 2 cup   1000
+  1500: 9.05,   // MDCSTA1500  STANDARD 3 cup   1500
+  2000: 9.40,   // MDCSTA2000  STANDARD 4 cup   2000
+  3000: 14.10,  // MDCSTA3000  STANDARD 6 cup   3000
 };
 
 /**
- * Standard ringlock ledger weights (kg) — from ACE/wm-scaffold catalog.
+ * Ledger weights (kg) by length (mm) — from BOM blank.xlsx catalog.
+ * Source rows r17–r28 (MDCLED0xxx).
  */
 const LEDGER_WEIGHTS: Record<number, number> = {
-  1090: 5.00,
-  1400: 6.00,
-  1520: 6.30,
-  1570: 6.50,
-  2070: 8.00,
-  2570: 9.50,
-  3070: 11.00,
+  390: 2.00,    // MDCLED0390
+  610: 2.41,    // MDCLED0610
+  650: 2.90,    // MDCLED0650
+  690: 3.05,    // MDCLED0690
+  900: 3.74,    // MDCLED0900
+  1090: 4.43,   // MDCLED1090
+  1220: 4.87,   // MDCLED1220
+  1500: 5.87,   // MDCLED1500
+  1570: 6.11,   // MDCLED1570
+  2070: 7.85,   // MDCLED2070
+  2134: 8.06,   // MDCLED2134
+  2570: 9.60,   // MDCLED2570
 };
 
 /**
- * Steel plank weights (kg) by plank width — from wm-scaffold catalog.
- * Two width variants: 320mm (heavy-duty) and 230mm (light).
+ * Reinforced ledger weights (kg) — heavier variants for X-bay long spans.
+ * Source rows r30–r33 (MDCRLE0xxx).
  */
-const PLANK_WEIGHTS_320: Record<number, number> = {
-  1090: 11.50,
-  1570: 15.60,
-  2070: 19.36,
-  2570: 23.13,
-  3070: 26.89,
+const REINFORCED_LEDGER_WEIGHTS: Record<number, number> = {
+  1570: 9.08,   // MDCRLE1570
+  2072: 12.00,  // MDCRLE2072
+  2134: 12.32,  // MDCRLE2134
+  2570: 14.54,  // MDCRLE2570
 };
 
-const PLANK_WEIGHTS_230: Record<number, number> = {
-  1090: 8.80,
-  1570: 11.85,
-  2070: 14.90,
-  2570: 18.00,
-  3070: 21.10,
+/**
+ * Diagonal brace weights (kg) — catalog for 2000mm lift height, keyed by bay length.
+ * Source rows r35–r42 (MDCVDB0xxx).
+ * For other lift heights, weight is scaled by actual_brace_length / catalog_brace_length.
+ */
+const BRACE_WEIGHTS: Record<number, number> = {
+  900: 8.03,    // MDCVDB0900  DIAG.BRACE2000/0900
+  1090: 6.96,   // MDCVDB1090  DIAG.BRACE2000/1090
+  1220: 7.79,   // MDCVDB1220  DIAG.BRACE2000/1220
+  1500: 9.58,   // MDCVDB1500  DIAG.BRACE2000/1500
+  1570: 9.71,   // MDCVDB1570  DIAG.BRACE2000/1570
+  2072: 9.80,   // MDCVDB2072  DIAG.BRACE2000/2072
+  2134: 9.86,   // MDCVDB2134  DIAG.BRACE2000/2134
+  2570: 10.62,  // MDCVDB2570  DIAG.BRACE2000/2570
 };
 
+/**
+ * Steel planks with hook (kg) by length — from BOM blank.xlsx catalog.
+ * Source rows r49–r57 (MDCSPH0xxx).
+ *
+ * Catalog does not differentiate by plank width — same length has same weight
+ * regardless of width. We apply a 230/320 = 0.719 width ratio for 230mm planks
+ * as a physical approximation (narrower plank = less steel per metre).
+ */
+const PLANK_WEIGHTS: Record<number, number> = {
+  680: 3.82,    // MDCSPH0680
+  1000: 6.26,   // MDCSPH1000
+  1200: 7.51,   // MDCSPH120  (catalog typo — represents 1200mm)
+  1220: 7.64,   // MDCSPH1220
+  1500: 9.39,   // MDCSPH1500
+  1570: 9.98,   // MDCSPH1570
+  2070: 13.34,  // MDCSPH2070
+  2134: 13.15,  // MDCSPH2134
+  2570: 15.44,  // MDCSPH2570
+};
+
+/**
+ * Toeboard weights (kg) by length — from BOM blank.xlsx catalog.
+ * Source rows r71–r81 (MDCTOB0xxx).
+ */
+const TOEBOARD_WEIGHTS: Record<number, number> = {
+  390: 2.00,    // MDCTOB0390
+  610: 2.41,    // MDCTOB0610
+  650: 2.44,    // MDCTOB0650
+  680: 2.52,    // MDCTOB0680
+  900: 3.69,    // MDCTOB0900
+  1220: 4.15,   // MDCTOB1220
+  1500: 4.98,   // MDCTOB1500
+  1570: 5.12,   // MDCTOB1570
+  2072: 6.71,   // MDCTOB2072
+  2134: 6.89,   // MDCTOB2134
+  2570: 8.20,   // MDCTOB2570
+};
+
+/**
+ * Monker ladder weights (kg) by section length — from BOM blank.xlsx catalog.
+ * Source rows r87–r88 (MDCMON2000, MDCMON3000).
+ * Ladders taller than 3m are stacked from 3m + 2m sections + spigot couplers.
+ */
+const LADDER_WEIGHTS: Record<number, number> = {
+  2000: 5.75,   // MDCMON2000
+  3000: 7.96,   // MDCMON3000
+};
+
+/**
+ * Base / caster / spigot weights (kg) — single-piece catalog values.
+ */
+const SOLE_BOARD_WEIGHT = 1.80;             // MDCSLB0450  SOLE BOARDS0450
+const BASE_COLLAR_WEIGHT = 1.72;             // MDCBCO0280  BASE_COLLAR
+const SWIVEL_BASE_JACK_WEIGHT = 3.81;       // MDCBCO0600  SWIVEL BASE JACK
+const FIXED_BASE_JACK_WEIGHT = 3.39;         // MDCFBJ0600  FIX_BASE_JACK
+const WHEEL_WEIGHT = 17.00;                 // MDCWHE0300  WHEEL (heavy-duty total-lock)
+const SPIGOT_WITH_COUPLER_WEIGHT = 1.25;    // MDCSWC0125  SPIGOT WITH COUPLER
+
+/**
+ * Linear lookup with interpolation / extrapolation for lengths not in catalog.
+ * - If `length` is exactly in `table`, return that value.
+ * - If `length` is between two catalog entries, linearly interpolate.
+ * - If `length` is outside the catalog range, extrapolate using
+ *   weight = (length / 1000) * kgPerM + intercept.
+ */
+function lookupWeight(
+  table: Record<number, number>,
+  length: number,
+  kgPerM: number,
+  intercept = 0,
+): number {
+  if (table[length] != null) return table[length];
+  const keys = Object.keys(table).map(Number).sort((a, b) => a - b);
+  if (keys.length === 0) return (length / 1000) * kgPerM + intercept;
+  if (length < keys[0] || length > keys[keys.length - 1]) {
+    return Math.max(0, (length / 1000) * kgPerM + intercept);
+  }
+  for (let i = 0; i < keys.length - 1; i++) {
+    if (length >= keys[i] && length <= keys[i + 1]) {
+      const w1 = table[keys[i]];
+      const w2 = table[keys[i + 1]];
+      const ratio = (length - keys[i]) / (keys[i + 1] - keys[i]);
+      return w1 + ratio * (w2 - w1);
+    }
+  }
+  return (length / 1000) * kgPerM + intercept;
+}
+
+/**
+ * Plank weight table by plank width. The BOM catalog doesn't differentiate
+ * widths — for 230mm we scale the catalog (320mm) weights by 230/320 = 0.719.
+ */
 function plankWeightTable(width: 320 | 230): Record<number, number> {
-  return width === 320 ? PLANK_WEIGHTS_320 : PLANK_WEIGHTS_230;
+  if (width === 320) return PLANK_WEIGHTS;
+  const scale = 230 / 320;
+  const result: Record<number, number> = {};
+  for (const [k, v] of Object.entries(PLANK_WEIGHTS)) {
+    result[parseInt(k)] = Math.round(v * scale * 100) / 100;
+  }
+  return result;
 }
 
+/**
+ * Slope (kg per metre of plank length) derived from catalog data.
+ * 320mm: (15.44 - 3.82) / (2570 - 680) = 6.15 kg/m
+ * 230mm: scaled by 230/320 → 4.42 kg/m
+ */
 function plankKgPerM(width: 320 | 230): number {
-  return width === 320 ? 8.5 : 6.4;
+  return width === 320 ? 6.15 : 4.42;
 }
 
+/**
+ * End-fitting (hook) weight estimate per plank — not separately cataloged.
+ */
 function plankEndWeight(width: 320 | 230): number {
-  return width === 320 ? 2.3 : 1.8;
+  return width === 320 ? 1.0 : 0.8;
 }
 
 /**
@@ -284,6 +403,75 @@ function calculateBays(requested: number, standards: number[]): { count: number;
   const baySize = closestStandard(requested, standards);
   const count = Math.max(1, Math.round(requested / baySize));
   return { count, size: baySize };
+}
+
+/**
+ * Split a total ladder height into 3m + 2m Monker ladder sections (greedy,
+ * largest first). Each section connects to the next via a spigot coupler
+ * (MDCSWC0125 = 1.25 kg). Returns the cumulative section weight, the
+ * section count, and the spigot count (sections − 1, or 0 if only 1 section).
+ *
+ * Catalog values used (BOM blank.xlsx rows r87–r88):
+ *   MDCMON2000  LADDER 2000  = 5.75 kg
+ *   MDCMON3000  LADDER 3000  = 7.96 kg
+ *
+ * For heights below 2000mm, the smallest catalog section (2000mm) is used
+ * and the weight is scaled linearly by actual_length / 2000.
+ */
+function computeLadderAssembly(totalHeight: number): {
+  sectionWeight: number;
+  sectionCount: number;
+  spigotCount: number;
+} {
+  // Below the smallest catalog section — scale linearly.
+  if (totalHeight <= 2000) {
+    const scale = totalHeight / 2000;
+    return {
+      sectionWeight: LADDER_WEIGHTS[2000] * scale,
+      sectionCount: 1,
+      spigotCount: 0,
+    };
+  }
+
+  // Greedy: use 3m sections first, then 2m.
+  const result: { length: number; weight: number }[] = [];
+  let remaining = totalHeight;
+  while (remaining >= 3000) {
+    result.push({ length: 3000, weight: LADDER_WEIGHTS[3000] });
+    remaining -= 3000;
+  }
+  while (remaining >= 2000) {
+    result.push({ length: 2000, weight: LADDER_WEIGHTS[2000] });
+    remaining -= 2000;
+  }
+  // If there's a remainder, add another 2m section (overhang).
+  if (remaining > 0) {
+    result.push({ length: 2000, weight: LADDER_WEIGHTS[2000] });
+  }
+
+  const sectionWeight = result.reduce((s, r) => s + r.weight, 0);
+  const sectionCount = result.length;
+  const spigotCount = Math.max(0, sectionCount - 1);
+  return { sectionWeight, sectionCount, spigotCount };
+}
+
+/**
+ * Split a side length into toeboard sections. Catalog max toeboard length is
+ * 2570mm — anything longer must be assembled from multiple sections joined
+ * end-to-end. Returns the list of section lengths (last section may be shorter
+ * than 2570mm to fit the remainder).
+ */
+function splitIntoToeboardSections(totalLength: number): number[] {
+  const maxLen = 2570;
+  if (totalLength <= maxLen) return [totalLength];
+  const sections: number[] = [];
+  let remaining = totalLength;
+  while (remaining > maxLen) {
+    sections.push(maxLen);
+    remaining -= maxLen;
+  }
+  if (remaining > 0) sections.push(remaining);
+  return sections;
 }
 
 /**
@@ -472,7 +660,9 @@ export function assembleTower(
   const details: BomDetailItem[] = [];
   let totalWeight = 0;
 
-  // STANDARDS: split tower height into standard lengths (max 3m each)
+  // STANDARDS: split tower height into standard lengths (max 3m each).
+  // Catalog MDCSTA0xxx — fallback formula derived from slope of catalog data
+  // (slope ≈ 4.5 kg/m, intercept ≈ 1.0).
   const towerHeightTotal = numLifts * liftHeight;
   const standardSegments = splitIntoStandards(towerHeightTotal);
   const standardGroups: Record<number, number> = {};
@@ -482,12 +672,12 @@ export function assembleTower(
   for (const [len, count] of Object.entries(standardGroups)) {
     const lenNum = parseInt(len);
     const qty = count * numStandards;
-    const unitW = STANDARD_WEIGHTS[lenNum] ?? ((lenNum / 1000) * 3.56 + 0.6 + 0.5);
+    const unitW = lookupWeight(STANDARD_WEIGHTS, lenNum, 4.5, 1.0);
     const totalW = qty * unitW;
     totalWeight += totalW;
     details.push({
       part_type: "Standard",
-      description: `Ringlock standard ${lenNum / 1000}m (48.3×3.2)`,
+      description: `Cuplock standard ${lenNum / 1000}m (48.3×3.2) — MDCSTA${String(lenNum).padStart(4, "0")}`,
       size: `${lenNum}mm`,
       quantity: qty,
       unit_weight_kg: Math.round(unitW * 100) / 100,
@@ -495,17 +685,26 @@ export function assembleTower(
     });
   }
 
-  // LEDGERS along X — grouped by bay_length (one BOM line per length)
+  // LEDGERS along X — grouped by bay_length (one BOM line per length).
+  // Catalog MDCLED0xxx — fallback formula (slope ≈ 3.5 kg/m, intercept ≈ 1.0).
+  // For long bays (>= 1570mm), use reinforced ledger weights (MDCRLE0xxx)
+  // when the bay_length is in that catalog — they're the proper spec for
+  // heavy-duty X-ledger spans.
   for (const [lenStr, numBays] of Object.entries(bayLengthGroupsX)) {
     const len = parseInt(lenStr);
     const ledgersXForThisLength = numBays * (bayY.count + 1); // per level
     const ledgerXQty = ledgersXForThisLength * (numLifts + 1); // + basement
-    const ledgerXWeight = LEDGER_WEIGHTS[len] ?? ((len / 1000) * 3.56 + 1.0);
+    const useReinforced = REINFORCED_LEDGER_WEIGHTS[len] != null;
+    const ledgerXWeight = useReinforced
+      ? REINFORCED_LEDGER_WEIGHTS[len]
+      : lookupWeight(LEDGER_WEIGHTS, len, 3.5, 1.0);
     const totalW = ledgerXQty * ledgerXWeight;
     totalWeight += totalW;
     details.push({
       part_type: "Ledger",
-      description: `Ledger ${len}mm (48.3×3.2) incl. basement reinforcing`,
+      description: useReinforced
+        ? `Reinforced ledger ${len}mm (48.3×3.2) incl. basement — MDCRLE${String(len).padStart(4, "0")}`
+        : `Ledger ${len}mm (48.3×3.2) incl. basement reinforcing — MDCLED${String(len).padStart(4, "0")}`,
       size: `${len}mm`,
       quantity: ledgerXQty,
       unit_weight_kg: Math.round(ledgerXWeight * 100) / 100,
@@ -513,15 +712,16 @@ export function assembleTower(
     });
   }
 
-  // LEDGERS along Y (including basement reinforcing)
+  // LEDGERS along Y (including basement reinforcing).
+  // Catalog MDCLED0xxx — Y-ledgers use regular (not reinforced) catalog.
   {
-    const ledgerYWeight = LEDGER_WEIGHTS[bayY.size] ?? ((bayY.size / 1000) * 3.56 + 1.0);
+    const ledgerYWeight = lookupWeight(LEDGER_WEIGHTS, bayY.size, 3.5, 1.0);
     const ledgerYQty = ledgersYPerLevel * (numLifts + 1);
     const totalW = ledgerYQty * ledgerYWeight;
     totalWeight += totalW;
     details.push({
       part_type: "Ledger",
-      description: `Ledger ${bayY.size}mm (48.3×3.2) incl. basement reinforcing`,
+      description: `Ledger ${bayY.size}mm (48.3×3.2) incl. basement reinforcing — MDCLED${String(bayY.size).padStart(4, "0")}`,
       size: `${bayY.size}mm`,
       quantity: ledgerYQty,
       unit_weight_kg: Math.round(ledgerYWeight * 100) / 100,
@@ -529,17 +729,26 @@ export function assembleTower(
     });
   }
 
-  // DIAGONAL BRACES — one BOM line per bay_length group
+  // DIAGONAL BRACES — one BOM line per bay_length group.
+  // Catalog MDCVDB0xxx (keyed by bay_length, valid for 2000mm lift height).
+  // For other lift heights, weight is scaled by the ratio of actual brace
+  // length to the catalog (2000mm lift) brace length.
   if (braces > 0) {
+    const catalogLiftHeight = 2000;
     for (const group of braceGroups) {
       const braceLengthMm = Math.sqrt(group.bayLength ** 2 + liftHeight ** 2);
-      const braceW = (braceLengthMm / 1000) * 2.75 + 1.0;
+      const catalogBraceLength = Math.sqrt(group.bayLength ** 2 + catalogLiftHeight ** 2);
+      const catalogWeight = lookupWeight(BRACE_WEIGHTS, group.bayLength, 3.0, 3.0);
+      // Scale by actual-vs-catalog brace length (handles non-2000mm lifts)
+      const braceW = liftHeight === catalogLiftHeight
+        ? catalogWeight
+        : catalogWeight * (braceLengthMm / catalogBraceLength);
       const qty = group.faceCount * numLifts;
       const totalW = qty * braceW;
       totalWeight += totalW;
       details.push({
         part_type: "Diagonal brace",
-        description: `Diagonal brace ${Math.round(braceLengthMm)}mm (48.3×2.5)`,
+        description: `Diagonal brace ${Math.round(braceLengthMm)}mm (48.3×2.5) — MDCVDB${String(group.bayLength).padStart(4, "0")}${liftHeight !== catalogLiftHeight ? ` (scaled from 2000mm lift)` : ""}`,
         size: `${Math.round(braceLengthMm)}mm`,
         quantity: qty,
         unit_weight_kg: Math.round(braceW * 100) / 100,
@@ -548,38 +757,40 @@ export function assembleTower(
     }
   }
 
-  // BASE JACKS / WHEELS — compliant to ringlock standard
-  // Base jack solid 38×600mm: 5.2 kg (ACE catalog), base plate 150×150×6mm
-  // Base jack hollow 38×600mm: 4.3 kg (wm-scaffold), adjustable 40-450mm
-  // Caster wheel 8" (200mm) total-lock: 5.7 kg (12.5 lbs), Ø200×50mm, PU on cast iron
-  //   - Total lock brake (wheel + swivel)
-  //   - Stem Ø35mm (1-3/8") round with pin hole
-  //   - Load capacity: 500 lbs / 227 kg per wheel
+  // BASE JACKS / WHEELS — catalog values from BOM blank.xlsx.
+  //   MDCBCO0600  SWIVEL BASE JACK  = 3.81 kg  (default for "jack" type)
+  //   MDCFBJ0600  FIX_BASE_JACK    = 3.39 kg
+  //   MDCWHE0300  WHEEL (heavy-duty total-lock) = 17.00 kg
+  // Note: catalog WHEEL weight (17 kg) is much heavier than the typical
+  // 8" caster (5–7 kg). Treated as authoritative per BOM blank.xlsx.
   {
-    const unitW = config.base_type === "wheel" ? 5.7 : 5.2;
-    const desc = config.base_type === "wheel"
-      ? 'Caster wheel 8" (200mm) total-lock, PU on cast iron'
-      : "Base jack 38×600mm solid, ACME thread, base plate 150×150×6mm";
+    const isWheel = config.base_type === "wheel";
+    const unitW = isWheel ? WHEEL_WEIGHT : SWIVEL_BASE_JACK_WEIGHT;
+    const desc = isWheel
+      ? 'Wheel (heavy-duty total-lock) — MDCWHE0300'
+      : "Swivel base jack 38×600mm — MDCBCO0600";
     const totalW = baseJacks * unitW;
     totalWeight += totalW;
     details.push({
-      part_type: config.base_type === "wheel" ? "Caster wheel" : "Base jack",
+      part_type: isWheel ? "Caster wheel" : "Base jack",
       description: desc,
-      size: config.base_type === "wheel" ? "Ø200×50mm" : "38×600mm",
+      size: isWheel ? "Ø200×50mm" : "38×600mm",
       quantity: baseJacks,
       unit_weight_kg: unitW,
       total_weight_kg: Math.round(totalW * 100) / 100,
     });
   }
 
-  // ROSETTES
+  // ROSETTES — small welded disc on standards (not separately cataloged;
+  // the catalog has ROSETTE CLAMPS at 1.16 kg but that's a removable
+  // clamp, not the rosette disc itself). Keep 0.6 kg as a sensible estimate.
   {
     const unitW = 0.6;
     const totalW = rosettes * unitW;
     totalWeight += totalW;
     details.push({
       part_type: "Rosette",
-      description: "Rosette Ø122×10mm",
+      description: "Rosette Ø122×10mm (welded to standard)",
       size: "Ø122mm",
       quantity: rosettes,
       unit_weight_kg: unitW,
@@ -587,20 +798,19 @@ export function assembleTower(
     });
   }
 
-  // GRATINGS (steel planks, width = plank_width, length = bay_length_y)
+  // GRATINGS (steel planks with hook, width = plank_width, length = bay_length_y).
+  // Catalog MDCSPH0xxx — single table for both widths (catalog doesn't
+  // differentiate). For 230mm planks, weights are scaled by 230/320 = 0.719.
   if (gratings > 0) {
     const pw = config.plank_width;
     const plankLen = bayY.size; // grating length = bay_length_y
     const plankWeights = plankWeightTable(pw);
-    const plankLenKey = Object.keys(plankWeights).map(Number).find(
-      (l) => Math.abs(l - plankLen) < 200
-    ) ?? Math.round(plankLen);
-    const unitW = plankWeights[plankLenKey] ?? ((plankLen / 1000) * plankKgPerM(pw) + plankEndWeight(pw));
+    const unitW = lookupWeight(plankWeights, plankLen, plankKgPerM(pw), plankEndWeight(pw));
     const totalW = gratings * unitW;
     totalWeight += totalW;
     details.push({
       part_type: "Grating",
-      description: `Steel hook plank ${pw}×${Math.round(plankLen)}mm`,
+      description: `Steel hook plank ${pw}×${Math.round(plankLen)}mm — MDCSPH${String(Math.round(plankLen)).padStart(4, "0")}${pw === 230 ? " (230mm scaled)" : ""}`,
       size: `${pw}×${Math.round(plankLen)}mm`,
       quantity: gratings,
       unit_weight_kg: Math.round(unitW * 100) / 100,
@@ -608,22 +818,57 @@ export function assembleTower(
     });
   }
 
-  // TOEBOARDS
+  // TOEBOARDS — per-length catalog weights (MDCTOB0xxx).
+  // 3 sides per level: 1 along X (back, length=towerX) + 2 along Y (left/right,
+  // length=towerY each). Front (+Y) is open for access.
+  // Each side longer than the catalog max (2570mm) is split into multiple
+  // sections joined end-to-end; sections are grouped by length for the BOM.
   if (toeboards > 0) {
-    const unitW = 2.0;
-    const totalW = toeboards * unitW;
-    totalWeight += totalW;
-    details.push({
-      part_type: "Toeboard",
-      description: "Toeboard (yellow, 100mm high)",
-      size: "100mm",
-      quantity: toeboards,
-      unit_weight_kg: unitW,
-      total_weight_kg: Math.round(totalW * 100) / 100,
-    });
+    const towerXmm = sections
+      ? sections.reduce((s, sec) => s + sec.bays * sec.bay_length, 0)
+      : bayX.count * bayX.size;
+    const towerYmm = bayY.count * bayY.size;
+
+    // Per-side section lists (one entry per section, length in mm).
+    const backSections = splitIntoToeboardSections(towerXmm);
+    const sideSections = splitIntoToeboardSections(towerYmm);
+
+    // Group: { length -> { backQty, sideQty } } across all lift levels.
+    const toeboardGroups: Record<number, { backQty: number; sideQty: number }> = {};
+    for (const lenMm of backSections) {
+      toeboardGroups[lenMm] = toeboardGroups[lenMm] ?? { backQty: 0, sideQty: 0 };
+      toeboardGroups[lenMm].backQty += numLifts;
+    }
+    for (const lenMm of sideSections) {
+      toeboardGroups[lenMm] = toeboardGroups[lenMm] ?? { backQty: 0, sideQty: 0 };
+      toeboardGroups[lenMm].sideQty += 2 * numLifts; // 2 sides per level
+    }
+
+    for (const [lenStr, { backQty, sideQty }] of Object.entries(toeboardGroups)) {
+      const lenMm = parseInt(lenStr);
+      const totalQty = backQty + sideQty;
+      if (totalQty === 0) continue;
+      const unitW = lookupWeight(TOEBOARD_WEIGHTS, lenMm, 3.0, 1.0);
+      const totalW = totalQty * unitW;
+      totalWeight += totalW;
+      const sideTags: string[] = [];
+      if (backQty > 0) sideTags.push(`back ×${backQty}`);
+      if (sideQty > 0) sideTags.push(`sides ×${sideQty}`);
+      details.push({
+        part_type: "Toeboard",
+        description: `Toeboard ${lenMm}mm (yellow, 100mm high, ${sideTags.join(", ")}) — MDCTOB${String(lenMm).padStart(4, "0")}`,
+        size: `${lenMm}mm`,
+        quantity: totalQty,
+        unit_weight_kg: Math.round(unitW * 100) / 100,
+        total_weight_kg: Math.round(totalW * 100) / 100,
+      });
+    }
   }
 
-  // GUARDRAIL POSTS (top level only)
+  // GUARDRAIL POSTS (top level only).
+  // Catalog doesn't list a guardrail-post assembled item — keep the 8.35 kg
+  // estimate (post + end fittings + small rosette). TUBE_1000 = 3.55 kg in
+  // catalog is just bare pipe, not the assembled post.
   {
     const grQty = numStandards;
     const unitW = 8.35;
@@ -631,7 +876,7 @@ export function assembleTower(
     totalWeight += totalW;
     details.push({
       part_type: "Guardrail post",
-      description: "Guardrail post 1m (38×2.5)",
+      description: "Guardrail post 1m (38×2.5) incl. fittings (estimated)",
       size: "1000mm",
       quantity: grQty,
       unit_weight_kg: unitW,
@@ -639,17 +884,18 @@ export function assembleTower(
     });
   }
 
-  // PRIMARY LADDER (if enabled)
+  // PRIMARY LADDER (if enabled).
+  // Catalog: MDCMON2000 = 5.75 kg, MDCMON3000 = 7.96 kg (Monker ladder sections).
+  // Towers taller than 3m stack 3m + 2m sections + spigot couplers
+  // (MDCSWC0125 = 1.25 kg each). Linear interpolation between catalog sizes.
   if (config.include_ladder) {
-    const rungSpacing = 300;
-    const rungCount = Math.floor(towerHeightTotal / rungSpacing);
-    const railWeight = (towerHeightTotal / 1000) * 1.7 * 2; // 2 rails, Ø30mm ≈ 1.7 kg/m
-    const rungWeight = rungCount * 0.3;
-    const totalW = railWeight + rungWeight;
+    const { sectionWeight, sectionCount, spigotCount } = computeLadderAssembly(towerHeightTotal);
+    const totalW = sectionWeight + spigotCount * SPIGOT_WITH_COUPLER_WEIGHT;
+    const rungCount = Math.floor(towerHeightTotal / 300);
     totalWeight += totalW;
     details.push({
       part_type: "Ladder",
-      description: `Primary vertical ladder 2×Ø30 rail + ${rungCount} rungs @300mm`,
+      description: `Primary vertical ladder — ${sectionCount} section(s) + ${spigotCount} spigot(s), 2×Ø30 rail + ${rungCount} rungs @300mm`,
       size: `${towerHeightTotal}mm`,
       quantity: 1,
       unit_weight_kg: Math.round(totalW * 100) / 100,
@@ -657,17 +903,16 @@ export function assembleTower(
     });
   }
 
-  // SECONDARY LADDER (escape, auto at ≥20m height/length)
+  // SECONDARY LADDER (escape, auto at ≥20m height/length).
+  // Same catalog logic as primary ladder (MDCMON2000/3000 sections + spigots).
   if (config.secondary_access) {
-    const rungSpacing = 300;
-    const rungCount = Math.floor(towerHeightTotal / rungSpacing);
-    const railWeight = (towerHeightTotal / 1000) * 1.7 * 2;
-    const rungWeight = rungCount * 0.3;
-    const totalW = railWeight + rungWeight;
+    const { sectionWeight, sectionCount, spigotCount } = computeLadderAssembly(towerHeightTotal);
+    const totalW = sectionWeight + spigotCount * SPIGOT_WITH_COUPLER_WEIGHT;
+    const rungCount = Math.floor(towerHeightTotal / 300);
     totalWeight += totalW;
     details.push({
       part_type: "Ladder",
-      description: `Secondary vertical ladder (escape) 2×Ø30 rail + ${rungCount} rungs @300mm`,
+      description: `Secondary vertical ladder (escape) — ${sectionCount} section(s) + ${spigotCount} spigot(s), 2×Ø30 rail + ${rungCount} rungs @300mm`,
       size: `${towerHeightTotal}mm`,
       quantity: 1,
       unit_weight_kg: Math.round(totalW * 100) / 100,
