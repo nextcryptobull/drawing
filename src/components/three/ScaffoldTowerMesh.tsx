@@ -1001,78 +1001,83 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
               </mesh>
             ))}
 
-            {/* Trap doors — one per lift, at the staircase exit opening.
-                The trapdoor covers the 2-plank opening at the staircase's Y face.
-                Raised 15mm ABOVE the grating surface so it's clearly visible as a
-                distinct hatch panel. Darker gray than gratings + thick visible
-                seam border (20mm) to identify it as a hinged trapdoor. */}
-            {hasPrimaryStaircase && rosetteZs.map((z, levelIdx) => {
-              const opening = staircaseOpenings.computeForBayAndLift(0, levelIdx, true);
-              if (!opening) return null;
-              const bayLen0 = bayLayout.bayLengths[0];
-              const pw = plank_width;
-              const gap = 4;
-              const gratingThk = 8;
-              const trapThk = 12; // slightly thicker than gratings
-              const planksPerBay = Math.max(2, Math.floor((bay_length_y + gap) / (pw + gap)));
-              const stepY = bay_length_y / planksPerBay;
-              const bayStartY = -towerY / 2;
-              const count = 2;
-              const startIdx = opening.onPlusY ? planksPerBay - count : 0;
-              const trapY = bayStartY + (startIdx + count / 2) * stepY;
-              const trapX = bayLayout.standardXs[0] + bayLen0 / 2;
-              // Raise trapdoor 15mm ABOVE grating surface so it's visible
-              const gratingTopZ = z - 2; // top surface of gratings
-              const trapZ = gratingTopZ + trapThk / 2 + 5; // 5mm gap above gratings
-              const trapLenX = bayLen0 * 0.96;
-              const trapWidthY = count * stepY * 0.92;
-              // Seam border: thick visible frame (20mm) around trapdoor edges
-              const seamThk = 20; // 20mm thick — visible at scaffold scale
-              const seamHeight = 25; // 25mm tall — rises above trapdoor
-              const seamColor = "#1a1a20"; // very dark gray
-              const seamOffset = 5; // gap between trapdoor edge and seam
-              return (
-                <group key={`trapdoor-L${levelIdx}`}>
-                  {/* Main trapdoor panel — darker gray, raised above gratings */}
-                  <mesh
-                    position={[trapX, trapY, trapZ]}
-                    castShadow
-                    receiveShadow
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (onPartClick) onPartClick(`Trap door L${levelIdx + 1}`, [trapX, trapY, trapZ], `trapdoor-L${levelIdx}`);
-                    }}
-                  >
-                    <boxGeometry args={[trapLenX, trapWidthY, trapThk]} />
-                    <meshStandardMaterial color="#3a4250" roughness={0.6} metalness={0.7} />
-                  </mesh>
-                  {/* Visible seam frame — 4 thick dark bars around trapdoor edges */}
-                  {/* Front edge (along X, at -Y side of trapdoor) */}
-                  <mesh position={[trapX, trapY - trapWidthY / 2 - seamOffset, trapZ + trapThk / 2]}>
-                    <boxGeometry args={[trapLenX + seamOffset * 2, seamThk, seamHeight]} />
-                    <meshStandardMaterial color={seamColor} roughness={0.8} metalness={0.3} />
-                  </mesh>
-                  {/* Back edge (along X, at +Y side) */}
-                  <mesh position={[trapX, trapY + trapWidthY / 2 + seamOffset, trapZ + trapThk / 2]}>
-                    <boxGeometry args={[trapLenX + seamOffset * 2, seamThk, seamHeight]} />
-                    <meshStandardMaterial color={seamColor} roughness={0.8} metalness={0.3} />
-                  </mesh>
-                  {/* Left edge (along Y, at -X side) */}
-                  <mesh position={[trapX - trapLenX / 2 - seamOffset, trapY, trapZ + trapThk / 2]}>
-                    <boxGeometry args={[seamThk, trapWidthY + seamOffset * 2, seamHeight]} />
-                    <meshStandardMaterial color={seamColor} roughness={0.8} metalness={0.3} />
-                  </mesh>
-                  {/* Right edge (along Y, at +X side) — hinge side, thicker */}
-                  <mesh position={[trapX + trapLenX / 2 + seamOffset, trapY, trapZ + trapThk / 2]}>
-                    <boxGeometry args={[seamThk * 1.5, trapWidthY + seamOffset * 2, seamHeight]} />
-                    <meshStandardMaterial color={seamColor} roughness={0.8} metalness={0.3} />
-                  </mesh>
-                </group>
-              );
-            })}
+            {/* (trapdoor moved to top-level — see below) */}
           </group>
         );
       })()}
+
+      {/* ---- Trapdoors (ladder traps) — one per lift at staircase opening ---- */}
+      {/* Styled like the reference image: dark anti-slip platform panel.
+          The trapdoor is a solid dark panel (charcoal/black) sitting on top
+          of the platform at the staircase exit opening. It represents the
+          hinged hatch that workers open to pass through the platform via
+          the staircase.
+          Rendered at TOP LEVEL (not inside toeboards block) so it always
+          shows when hasPrimaryStaircase is true, regardless of toeboard setting. */}
+      {hasPrimaryStaircase && rosetteZs.map((z, levelIdx) => {
+        const opening = staircaseOpenings.computeForBayAndLift(0, levelIdx, true);
+        if (!opening) return null;
+        const bayLen0 = bayLayout.bayLengths[0];
+        const pw = plank_width;
+        const gap = 4;
+        const trapThk = 15; // 15mm thick anti-slip panel
+        const planksPerBay = Math.max(2, Math.floor((bay_length_y + gap) / (pw + gap)));
+        const stepY = bay_length_y / planksPerBay;
+        const bayStartY = -towerY / 2;
+        const count = 2;
+        const startIdx = opening.onPlusY ? planksPerBay - count : 0;
+        const trapY = bayStartY + (startIdx + count / 2) * stepY;
+        const trapX = bayLayout.standardXs[0] + bayLen0 / 2;
+        // Raise 20mm above grating surface so clearly visible
+        const trapZ = z + 10;
+        const trapLenX = bayLen0 * 0.94;
+        const trapWidthY = count * stepY * 0.90;
+        // Hinge bracket on the staircase-side edge (thick dark bar)
+        const hingeThk = 25;
+        const hingeHeight = 30;
+        return (
+          <group key={`trapdoor-L${levelIdx}`}>
+            {/* Main trapdoor panel — dark anti-slip surface (charcoal/black) */}
+            <mesh
+              position={[trapX, trapY, trapZ]}
+              castShadow
+              receiveShadow
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onPartClick) onPartClick(`Trap door L${levelIdx + 1}`, [trapX, trapY, trapZ], `trapdoor-L${levelIdx}`);
+              }}
+            >
+              <boxGeometry args={[trapLenX, trapWidthY, trapThk]} />
+              {/* Dark charcoal anti-slip surface — matches reference image */}
+              <meshStandardMaterial color="#1a1a1e" roughness={0.9} metalness={0.2} />
+            </mesh>
+            {/* Hinge bracket — thick dark bar on the staircase-side Y edge */}
+            <mesh
+              position={[
+                trapX,
+                opening.onPlusY ? trapY + trapWidthY / 2 + hingeThk / 2 : trapY - trapWidthY / 2 - hingeThk / 2,
+                trapZ + trapThk / 2,
+              ]}
+              castShadow
+            >
+              <boxGeometry args={[trapLenX + 10, hingeThk, hingeHeight]} />
+              <meshStandardMaterial color="#2a2a30" roughness={0.7} metalness={0.5} />
+            </mesh>
+            {/* Handle — small dark protrusion on the opposite side from hinge */}
+            <mesh
+              position={[
+                trapX,
+                opening.onPlusY ? trapY - trapWidthY / 2 - 8 : trapY + trapWidthY / 2 + 8,
+                trapZ + trapThk / 2 + 5,
+              ]}
+              castShadow
+            >
+              <boxGeometry args={[60, 16, 20]} />
+              <meshStandardMaterial color="#2a2a30" roughness={0.7} metalness={0.5} />
+            </mesh>
+          </group>
+        );
+      })}
 
       {/* ---- Handrails + middle rails on staircase bays ---- */}
       {/* SAFETY: where there are stairs, both Y faces (+Y and -Y) of the
