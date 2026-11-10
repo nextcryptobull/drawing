@@ -1039,15 +1039,21 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
             const isSecondaryBay = i === bayLayout.bayCenters.length - 1;
             const primaryHasStaircase = isPrimaryBay && hasPrimaryStaircase;
             const secondaryHasStaircase = isSecondaryBay && secondary_access && !isPrimaryBay;
-            // Staircase tower: ALL bays have staircases (alternating per lift)
-            const thisBayHasStaircase = staircase_tower || primaryHasStaircase || secondaryHasStaircase;
+            // Staircase tower: only the bay WITH the staircase for this lift gets an opening
+            // Lift 0 → bay 0, Lift 1 → bay 1, Lift 2 → bay 0, Lift 3 → bay 1
+            const staircaseTowerBayIdx = staircase_tower
+              ? (levelIdx % 2 === 0 ? 0 : Math.min(1, bayLayout.bayCenters.length - 1))
+              : -1;
+            const thisBayHasStaircase = staircase_tower
+              ? (i === staircaseTowerBayIdx)
+              : (primaryHasStaircase || secondaryHasStaircase);
 
             if (thisBayHasStaircase) {
               // Staircase present: skip 2 planks at the staircase's Y face.
-              // In staircase_tower mode: even bays on +Y, odd bays on -Y (per lift)
+              // In staircase_tower mode: alternate Y face per lift
               // In normal mode: primary on +Y, secondary on -Y
               const startOnPlusY = staircase_tower
-                ? (i + levelIdx) % 2 === 0  // alternate per bay AND lift
+                ? (levelIdx % 2 === 0)
                 : primaryHasStaircase;
               const opening = staircaseOpenings.computeForBayAndLift(i, levelIdx, startOnPlusY);
               if (opening) {
@@ -1400,21 +1406,25 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         );
       })}
 
-      {/* ---- Staircase tower: stairs in ALL bays (alternating per lift) ---- */}
-      {/* In staircase_tower mode, every bay has a staircase. The Y face alternates
-          per bay AND per lift, creating a zigzag path: workers go up in bay 0,
-          walk across the landing to bay 1, go up, walk back to bay 0, etc. */}
-      {staircase_tower && bayLayout.bayCenters.map((_, bayIdx) =>
-        Array.from({ length: num_lifts }).map((_, liftIdx) => {
-          const renderFn = staircase_type === "stairs" ? renderStairs : renderStaircaseSection;
-          // Alternate Y face per bay AND per lift
-          const startOnPlusY = (bayIdx + liftIdx) % 2 === 0;
-          const color = bayIdx % 2 === 0 ? materials.ladder : materials.ladderSecondary;
-          const name = bayIdx % 2 === 0 ? "Staircase" : "Staircase (alt)";
-          const prefix = `staircase-tower-bay${bayIdx}`;
-          return renderFn(bayIdx, liftIdx, color, name, prefix, startOnPlusY);
-        })
-      )}
+      {/* ---- Staircase tower: ONE staircase per lift, alternating BAY ---- */}
+      {/* Each lift has exactly ONE staircase, placed in a DIFFERENT bay from
+          the lifts above and below. This ensures stairs are NEVER directly
+          above another staircase (non-adjacent):
+            Lift 0 → bay 0    Lift 1 → bay 1    Lift 2 → bay 0    Lift 3 → bay 1
+          Workers go up in bay 0, walk across the platform to bay 1, go up,
+          walk back to bay 0, etc. — a zigzag path. */}
+      {staircase_tower && Array.from({ length: num_lifts }).map((_, liftIdx) => {
+        const totalBays = bayLayout.bayCenters.length;
+        // Alternate bay per lift: even lifts → bay 0, odd lifts → bay 1
+        const bayIdx = liftIdx % 2 === 0 ? 0 : Math.min(1, totalBays - 1);
+        const renderFn = staircase_type === "stairs" ? renderStairs : renderStaircaseSection;
+        // Alternate Y face per lift (non-adjacent)
+        const startOnPlusY = liftIdx % 2 === 0;
+        const color = liftIdx % 2 === 0 ? materials.ladder : materials.ladderSecondary;
+        const name = `Staircase (lift ${liftIdx + 1})`;
+        const prefix = `staircase-tower-L${liftIdx}`;
+        return renderFn(bayIdx, liftIdx, color, name, prefix, startOnPlusY);
+      })}
 
       {/* ---- Primary staircase (access bay 0 only, when NOT staircase_tower) ---- */}
       {!staircase_tower && hasPrimaryStaircase && Array.from({ length: num_lifts }).map((_, liftIdx) => {
