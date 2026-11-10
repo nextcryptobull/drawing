@@ -353,6 +353,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     const pw = plank_width;
     const angleFromVertical = 15 * (Math.PI / 180); // 15° in radians
     const staircaseRun = lift_height * Math.tan(angleFromVertical); // horizontal run
+    const railOffset = 200; // 400mm between stringers → ±200mm (must match renderStaircaseSection)
 
     // `startOnPlusY` controls which face the FIRST lift (liftIdx 0) is on.
     // Primary staircase: startOnPlusY=true  → lift 0 on +Y, lift 1 on -Y, ...
@@ -377,11 +378,17 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       const xTop = openingAtPlusX ? bayEndX : bayStartX;
       // Staircase BOTTOM (entrance) is `staircaseRun` mm inward from the top
       const xBottom = openingAtPlusX ? bayEndX - staircaseRun : bayStartX + staircaseRun;
-      // Y face alternates per lift (non-adjacent), offset by startOnPlusY
-      // Primary (true):  even=+Y, odd=-Y
-      // Secondary (false): even=-Y, odd=+Y
+      // Y face alternates per lift (non-adjacent), offset by startOnPlusY.
+      // The yFace is the CENTERLINE of the staircase. The two stringers are
+      // at yFace ± railOffset (±200mm). To keep both stringers INSIDE the
+      // scaffold frame (|y| < towerY/2), yFace must be at
+      // towerY/2 - railOffset - margin. Using 80mm margin from the outer
+      // standard, so yFace = towerY/2 - 280, outer stringer = towerY/2 - 80.
+      // Primary (true):   even=+Y face, odd=-Y face
+      // Secondary (false): even=-Y face, odd=+Y face
       const onPlusY = startOnPlusY ? (liftIdx % 2 === 0) : (liftIdx % 2 === 1);
-      const yFace = onPlusY ? (towerY / 2 - 80) : -(towerY / 2 - 80);
+      const yMargin = 80; // distance from outer stringer to the standard
+      const yFace = onPlusY ? (towerY / 2 - railOffset - yMargin) : -(towerY / 2 - railOffset - yMargin);
       // Trapdoor position (at the top of the staircase = the opening)
       const trapdoorX = bayStartX + (startIdx + count / 2) * stepX;
       const trapdoorWidth = count * stepX * 0.92;

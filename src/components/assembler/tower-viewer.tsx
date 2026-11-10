@@ -270,8 +270,9 @@ export function TowerViewer({ config, onRemovePart, removedParts }: { config: To
             // Staircase midpoint = bay 0 center in X, middle of tower height in Z
             const tX = debounced.bays_x * debounced.bay_length_x;
             const ladderX = -tX / 2 + debounced.bay_length_x / 2;
-            // Y alternates per lift; use +Y for the first (even) lift
-            const ladderY = tY / 2 - 80;
+            // yFace = towerY/2 - railOffset(200) - margin(80) = towerY/2 - 280
+            // (keeps both stringers inside the scaffold frame)
+            const ladderY = tY / 2 - 280;
             return (
               <Button
                 variant="secondary"
@@ -292,8 +293,8 @@ export function TowerViewer({ config, onRemovePart, removedParts }: { config: To
             const tX = debounced.bays_x * debounced.bay_length_x;
             // Last bay center
             const ladderX = tX / 2 - debounced.bay_length_x / 2;
-            // Secondary starts on -Y
-            const ladderY = -(tY / 2 - 80);
+            // Secondary starts on -Y, same offset: -(towerY/2 - 280)
+            const ladderY = -(tY / 2 - 280);
             return (
               <Button
                 variant="secondary"
