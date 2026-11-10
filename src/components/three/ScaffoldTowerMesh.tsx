@@ -529,7 +529,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
   // - Hinge on the INNER Y edge (towards scaffold center)
   // - Positioned so the OUTER Y edge aligns with the outer standard (within frame)
   const renderTrapdoor = (
-    opening: { xTop: number; yFace: number; onPlusY: boolean },
+    opening: { xTop: number; xBottom: number; yFace: number; onPlusY: boolean },
     bayLen: number,
     levelIdx: number,
     z: number,
@@ -539,7 +539,11 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     const gap = 4;
     const trapThk = 50;
     const trapLenX = bayLen / 3;
-    const trapX = opening.xTop - trapLenX / 2;
+    // Trapdoor X: extends INWARD from the staircase exit.
+    // When exit is at +X end (xTop > xBottom): trapX = xTop - trapLenX/2 (extends toward -X, inward)
+    // When exit is at -X end (xTop < xBottom): trapX = xTop + trapLenX/2 (extends toward +X, inward)
+    const atPlusX = opening.xTop > opening.xBottom;
+    const trapX = atPlusX ? opening.xTop - trapLenX / 2 : opening.xTop + trapLenX / 2;
     // Y width: 2 plank widths + gap (covers 2 grating frames)
     const trapWidthY = pw * 2 + gap;
 
