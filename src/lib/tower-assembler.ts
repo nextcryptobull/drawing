@@ -1118,79 +1118,61 @@ export function assembleTower(
     }
   }
 
-  // PRIMARY LADDER (if enabled).
-  // Catalog: MDCMON2000 = 5.75 kg, MDCMON3000 = 7.96 kg (Monker ladder sections).
-  // Towers taller than 3m stack 3m + 2m sections + spigot couplers
-  // (MDCSWC0125 = 1.25 kg each). Linear interpolation between catalog sizes.
-  if (config.include_ladder) {
-    const { sectionWeight, sectionCount, spigotCount } = computeLadderAssembly(towerHeightTotal);
-    const totalW = sectionWeight + spigotCount * SPIGOT_WITH_COUPLER_WEIGHT;
-    const rungCount = Math.floor(towerHeightTotal / 300);
-    totalWeight += totalW;
-    details.push({
-      part_type: "Ladder",
-      description: `Primary vertical ladder — ${sectionCount} section(s) + ${spigotCount} spigot(s), 2×Ø30 rail + ${rungCount} rungs @300mm`,
-      size: `${towerHeightTotal}mm`,
-      quantity: 1,
-      unit_weight_kg: Math.round(totalW * 100) / 100,
-      total_weight_kg: Math.round(totalW * 100) / 100,
-    });
-  }
+  // REMOVABLE STAIRCASE SECTIONS (non-adjacent angular ladders).
+  // Per reference BOMs: each access bay gets one inclined staircase per lift
+  // level (MDCRSC2134 = 60.50 kg, 2134mm long), plus a guard rail (MDCGRFS2134
+  // = 11.70 kg) and 5 steps (MDCSFS0860 = 4.05 kg each).
+  //
+  // The staircases alternate between +Y and -Y faces per lift (non-adjacent
+  // pattern), creating a zigzag. At each platform, you walk across to the
+  // opposite face to reach the next staircase.
+  //
+  // Reference verification (BOM façade Tana 1, 50×2×8m):
+  //   Primary: 4 staircases (4 lifts × 1 access bay)
+  //   Secondary: 4 staircases (4 lifts × 1 escape bay)
+  //   Total: 8 staircases, 8 guard rails, 40 steps ✓
+  {
+    const numAccessBays = (config.include_ladder ? 1 : 0) + (config.secondary_access ? 1 : 0);
+    if (numAccessBays > 0) {
+      const staircaseQtyPerBay = numLifts;
+      const totalStaircaseQty = numAccessBays * staircaseQtyPerBay;
+      const totalGuardRailQty = totalStaircaseQty; // 1 guard rail per staircase
+      const totalStepQty = totalStaircaseQty * STEPS_PER_STAIRCASE;
 
-  // SECONDARY LADDER (escape, auto at ≥20m height/length).
-  // Same catalog logic as primary ladder (MDCMON2000/3000 sections + spigots).
-  if (config.secondary_access) {
-    const { sectionWeight, sectionCount, spigotCount } = computeLadderAssembly(towerHeightTotal);
-    const totalW = sectionWeight + spigotCount * SPIGOT_WITH_COUPLER_WEIGHT;
-    const rungCount = Math.floor(towerHeightTotal / 300);
-    totalWeight += totalW;
-    details.push({
-      part_type: "Ladder",
-      description: `Secondary vertical ladder (escape) — ${sectionCount} section(s) + ${spigotCount} spigot(s), 2×Ø30 rail + ${rungCount} rungs @300mm`,
-      size: `${towerHeightTotal}mm`,
-      quantity: 1,
-      unit_weight_kg: Math.round(totalW * 100) / 100,
-      total_weight_kg: Math.round(totalW * 100) / 100,
-    });
-  }
+      const staircaseTotalW = totalStaircaseQty * REMOVABLE_STAIRCASE_WEIGHT;
+      const guardRailTotalW = totalGuardRailQty * STAIRCASE_GUARD_RAIL_WEIGHT;
+      const stepTotalW = totalStepQty * STAIRCASE_STEP_WEIGHT;
+      totalWeight += staircaseTotalW + guardRailTotalW + stepTotalW;
 
-  // REMOVABLE STAIRCASE + ACCESSORIES (MDCRSC2134 + MDCGRFS2134 + MDCSFS0860).
-  // Per reference BOM façade Tana 1 (50×2×8m): 8 staircases, 8 guard rails,
-  // 40 steps (5 per staircase). Spacing ≈ 6m along tower length.
-  // Triggered when secondary_access is true (auto at ≥20m height/length).
-  if (config.secondary_access) {
-    const staircaseCount = Math.max(1, Math.floor(actualLength / STAIRCASE_SPACING_MM));
-    const staircaseTotalW = staircaseCount * REMOVABLE_STAIRCASE_WEIGHT;
-    const guardRailTotalW = staircaseCount * STAIRCASE_GUARD_RAIL_WEIGHT;
-    const stepQty = staircaseCount * STEPS_PER_STAIRCASE;
-    const stepTotalW = stepQty * STAIRCASE_STEP_WEIGHT;
+      const accessBayTags: string[] = [];
+      if (config.include_ladder) accessBayTags.push("primary");
+      if (config.secondary_access) accessBayTags.push("secondary");
 
-    totalWeight += staircaseTotalW + guardRailTotalW + stepTotalW;
-
-    details.push({
-      part_type: "Removable staircase",
-      description: `Removable staircase 2134mm — MDCRSC2134  (1 per ~6m of length)`,
-      size: "2134mm",
-      quantity: staircaseCount,
-      unit_weight_kg: REMOVABLE_STAIRCASE_WEIGHT,
-      total_weight_kg: Math.round(staircaseTotalW * 100) / 100,
-    });
-    details.push({
-      part_type: "Staircase guard rail",
-      description: `Guard rail for staircase — MDCGRFS2134  (1 per staircase)`,
-      size: "2134mm",
-      quantity: staircaseCount,
-      unit_weight_kg: STAIRCASE_GUARD_RAIL_WEIGHT,
-      total_weight_kg: Math.round(guardRailTotalW * 100) / 100,
-    });
-    details.push({
-      part_type: "Staircase step",
-      description: `Step for staircase — MDCSFS0860  (5 per staircase)`,
-      size: "860mm",
-      quantity: stepQty,
-      unit_weight_kg: STAIRCASE_STEP_WEIGHT,
-      total_weight_kg: Math.round(stepTotalW * 100) / 100,
-    });
+      details.push({
+        part_type: "Removable staircase",
+        description: `Removable staircase 2134mm — MDCRSC2134  (${numAccessBays} access bay(s): ${accessBayTags.join("+")}, ${numLifts} lifts each, non-adjacent angular)`,
+        size: "2134mm",
+        quantity: totalStaircaseQty,
+        unit_weight_kg: REMOVABLE_STAIRCASE_WEIGHT,
+        total_weight_kg: Math.round(staircaseTotalW * 100) / 100,
+      });
+      details.push({
+        part_type: "Staircase guard rail",
+        description: `Guard rail for staircase — MDCGRFS2134  (1 per staircase)`,
+        size: "2134mm",
+        quantity: totalGuardRailQty,
+        unit_weight_kg: STAIRCASE_GUARD_RAIL_WEIGHT,
+        total_weight_kg: Math.round(guardRailTotalW * 100) / 100,
+      });
+      details.push({
+        part_type: "Staircase step",
+        description: `Step for staircase — MDCSFS0860  (${STEPS_PER_STAIRCASE} per staircase)`,
+        size: "860mm",
+        quantity: totalStepQty,
+        unit_weight_kg: STAIRCASE_STEP_WEIGHT,
+        total_weight_kg: Math.round(stepTotalW * 100) / 100,
+      });
+    }
   }
 
   const estimatedWeight = Math.round(totalWeight);

@@ -375,60 +375,112 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     };
   }, [bayLayout, plank_width, include_ladder, secondary_access]);
 
-  // ─── Ladder geometry helper ─────────────────────────────────────────────
-  // Renders a vertical ladder (2 rails + rungs) inside a bay. `ladderCenterX`
-  // is the bay's center X; `ladderY` is the Y offset (typically ±towerY/2 - 80).
-  const renderLadder = (
-    ladderCenterX: number,
-    ladderY: number,
+  // ─── Staircase section helper ────────────────────────────────────────
+  // Renders one inclined staircase section covering a single lift level.
+  // The staircase is inclined at ~70° from horizontal (for 2000mm lifts),
+  // with 2 stringers + 5 steps + 1 guard rail.
+  //
+  // "Non-adjacent" pattern: each section alternates between +Y and -Y faces
+  // per lift, creating a zigzag. Even lifts are on +Y, odd lifts on -Y.
+  // This means at each platform, you walk across to the opposite face to
+  // reach the next staircase.
+  const renderStaircaseSection = (
+    bayIdx: number,
+    liftIdx: number,
+    startOnPlusY: boolean,
     material: THREE.Material,
     partName: string,
-    partId: string,
+    partIdPrefix: string,
   ) => {
-    const ladderRailR = 15; // Ø30mm
-    const railOffset = 200; // 400mm apart → ±200mm from center
-    const rungR = 10; // Ø20mm
-    const rungSpacing = 300;
-    const rungCount = Math.floor(towerHeight / rungSpacing);
+    if (bayIdx >= bayLayout.bayCenters.length) return null;
+
+    const staircaseLen = 2134; // MDCRSC2134 catalog length
+    const rise = lift_height;
+    // Horizontal run = √(staircaseLen² - rise²). Clamp to ≥100mm for steep lifts.
+    const run = Math.sqrt(Math.max(100, staircaseLen * staircaseLen - rise * rise));
+    const railOffset = 200; // 400mm between stringers → ±200mm
+    const stepCount = 5; // MDCSFS0860 = 5 per staircase
+    const guardRailOffset = 100; // guard rail is 100mm above the stringer
+
+    const zBottom = liftIdx * lift_height;
+    const zTop = (liftIdx + 1) * lift_height;
+
+    const bayCenterX = bayLayout.bayCenters[bayIdx];
+    const xBottom = bayCenterX - run / 2; // staircase starts at -X
+    const xTop = bayCenterX + run / 2; // staircase ends at +X (through the opening)
+
+    // Alternate Y face per lift (non-adjacent)
+    const onPlusY = startOnPlusY ? (liftIdx % 2 === 0) : (liftIdx % 2 === 1);
+    const yFace = onPlusY ? (towerY / 2 - 80) : -(towerY / 2 - 80);
+
+    // Direction vector (from bottom to top, in X-Z plane)
+    const dx = xTop - xBottom;
+    const dz = zTop - zBottom;
+    const len = Math.sqrt(dx * dx + dz * dz);
+    const dir = new THREE.Vector3(dx, 0, dz).normalize();
+    const yAxis = new THREE.Vector3(0, 1, 0);
+    const quat = new THREE.Quaternion().setFromUnitVectors(yAxis, dir);
+    const euler = new THREE.Euler().setFromQuaternion(quat);
+
+    // Midpoint of the staircase
+    const midX = (xBottom + xTop) / 2;
+    const midZ = (zBottom + zTop) / 2;
 
     return (
       <group
-        key={partId}
+        key={`${partIdPrefix}-L${liftIdx}`}
         onClick={(e) => {
           e.stopPropagation();
-          if (onPartClick) onPartClick(partName, [ladderCenterX, ladderY, towerHeight / 2], partId);
+          if (onPartClick) onPartClick(`${partName} (lift ${liftIdx + 1})`, [midX, yFace, midZ], `${partIdPrefix}-L${liftIdx}`);
         }}
       >
-        {/* Left rail */}
+        {/* Left stringer (offset -Y from yFace) */}
         <mesh
-          rotation={verticalRotation}
-          position={[ladderCenterX - railOffset, ladderY, towerHeight / 2]}
+          rotation={[euler.x, euler.y, euler.z]}
+          position={[midX, yFace - railOffset, midZ]}
           material={material}
           castShadow
         >
-          <cylinderGeometry args={[ladderRailR, ladderRailR, towerHeight, 16]} />
+          <cylinderGeometry args={[15, 15, len, 16]} />
         </mesh>
-        {/* Right rail */}
+        {/* Right stringer (offset +Y from yFace) */}
         <mesh
-          rotation={verticalRotation}
-          position={[ladderCenterX + railOffset, ladderY, towerHeight / 2]}
+          rotation={[euler.x, euler.y, euler.z]}
+          position={[midX, yFace + railOffset, midZ]}
           material={material}
           castShadow
         >
-          <cylinderGeometry args={[ladderRailR, ladderRailR, towerHeight, 16]} />
+          <cylinderGeometry args={[15, 15, len, 16]} />
         </mesh>
-        {/* Rungs (cylinders along X — rotation [0, 0, Math.PI/2] turns default Y axis into X) */}
-        {Array.from({ length: rungCount }).map((_, ri) => (
-          <mesh
-            key={`rung-${partId}-${ri}`}
-            position={[ladderCenterX, ladderY, (ri + 1) * rungSpacing]}
-            rotation={[0, 0, Math.PI / 2]}
-            material={material}
-            castShadow
-          >
-            <cylinderGeometry args={[rungR, rungR, railOffset * 2, 8]} />
-          </mesh>
-        ))}
+        {/* Steps: 5 horizontal planks, spanning between stringers */}
+        {Array.from({ length: stepCount }).map((_, si) => {
+          const t = (si + 0.5) / stepCount; // 0.1, 0.3, 0.5, 0.7, 0.9
+          const stepX = xBottom + dx * t;
+          const stepZ = zBottom + dz * t;
+          return (
+            <mesh
+              key={`${partIdPrefix}-step-L${liftIdx}-${si}`}
+              position={[stepX, yFace, stepZ]}
+              material={material}
+              castShadow
+            >
+              <boxGeometry args={[100, railOffset * 2 + 40, 20]} />
+            </mesh>
+          );
+        })}
+        {/* Guard rail: parallel to stringers, on the outer side (away from platform center) */}
+        <mesh
+          rotation={[euler.x, euler.y, euler.z]}
+          position={[
+            midX,
+            onPlusY ? yFace + railOffset + guardRailOffset : yFace - railOffset - guardRailOffset,
+            midZ,
+          ]}
+          material={material}
+          castShadow
+        >
+          <cylinderGeometry args={[12, 12, len, 16]} />
+        </mesh>
       </group>
     );
   };
@@ -955,38 +1007,36 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         );
       })()}
 
-      {/* ---- Primary ladder (yellow, inside access bay 0) ---- */}
-      {/* Ladder runs vertically inside the first bay (access bay), passing
-          through the 2-plank opening at the +X end of the bay. The opening
-          is computed in `ladderOpenings.primary` and is fixed on every level
-          (no alternating) so the ladder has a clear vertical path.
-          Two vertical rails (Ø30mm) + horizontal rungs every 300mm. */}
-      {include_ladder && ladderOpenings.primary && (() => {
-        const ladderCenterX = ladderOpenings.primary.ladderX;
-        const ladderY = towerY / 2 - 80; // front face (+Y), 80mm inset
-        return renderLadder(
-          ladderCenterX,
-          ladderY,
+      {/* ---- Primary staircase sections (yellow, access bay 0) ---- */}
+      {/* Non-adjacent angular staircases: one inclined section per lift level,
+          alternating between +Y and -Y faces per lift (zigzag pattern).
+          Each section: 2 stringers + 5 steps + 1 guard rail (MDCRSC2134 + MDCGRFS2134 + MDCSFS0860).
+          The staircase passes through the 2-plank opening at the +X end of the bay. */}
+      {include_ladder && Array.from({ length: num_lifts }).map((_, liftIdx) => {
+        // Primary starts on +Y for even lifts, -Y for odd lifts
+        return renderStaircaseSection(
+          0, // bay 0 (access bay)
+          liftIdx,
+          true, // start on +Y
           materials.ladder,
-          "Primary ladder",
-          "ladder-primary",
+          "Primary staircase",
+          "staircase-primary",
         );
-      })()}
+      })}
 
-      {/* ---- Secondary ladder (orange, escape, opposite end + opposite face) ---- */}
-      {/* Secondary escape ladder at the +X end of the LAST bay, on the -Y face
-          (opposite of primary). Passes through its own 2-plank opening. */}
-      {secondary_access && ladderOpenings.secondary && (() => {
-        const ladderCenterX = ladderOpenings.secondary.ladderX;
-        const ladderY = -(towerY / 2 - 80); // back face (-Y), opposite of primary
-        return renderLadder(
-          ladderCenterX,
-          ladderY,
+      {/* ---- Secondary staircase sections (orange, escape, last bay) ---- */}
+      {/* Same non-adjacent angular pattern, but starts on -Y (opposite face from primary). */}
+      {secondary_access && Array.from({ length: num_lifts }).map((_, liftIdx) => {
+        const lastBayIdx = bayLayout.bayCenters.length - 1;
+        return renderStaircaseSection(
+          lastBayIdx, // last bay
+          liftIdx,
+          false, // start on -Y (opposite of primary)
           materials.ladderSecondary,
-          "Secondary ladder (escape)",
-          "ladder-secondary",
+          "Secondary staircase (escape)",
+          "staircase-secondary",
         );
-      })()}
+      })}
     </group>
   );
 }
