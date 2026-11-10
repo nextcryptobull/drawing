@@ -67,6 +67,12 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     sections?: Array<{ bays: number; bay_length: number }>;
   };
 
+  // When secondary access is enabled (auto at ≥20m height/length), the primary
+  // staircase must ALSO be present — it's the main access, secondary is the escape.
+  // This ensures both staircases render when secondary_access auto-triggers,
+  // even if the user didn't manually enable "Ladder (access side)".
+  const hasPrimaryStaircase = include_ladder || secondary_access;
+
   const materials = useMemo(
     () => ({
       standard: new THREE.MeshStandardMaterial({
@@ -829,7 +835,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
               const skipIndices = new Set<number>();
               const isPrimaryBay = i === 0;
               const isSecondaryBay = i === bayLayout.bayCenters.length - 1;
-              const primaryHasStaircase = isPrimaryBay && include_ladder;
+              const primaryHasStaircase = isPrimaryBay && hasPrimaryStaircase;
               const secondaryHasStaircase = isSecondaryBay && secondary_access && !isPrimaryBay;
 
               if (primaryHasStaircase || secondaryHasStaircase) {
@@ -840,7 +846,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
                 if (opening) {
                   for (const idx of opening.skipIndices) skipIndices.add(idx);
                 }
-              } else if (isPrimaryBay && !include_ladder) {
+              } else if (isPrimaryBay && !hasPrimaryStaircase) {
                 // No ladder, trapdoor only: skip 1 alternating
                 const accessOpenIdx = levelIdx % 2 === 0 ? planksPerBay - 1 : 0;
                 skipIndices.add(accessOpenIdx);
@@ -992,7 +998,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
                 The trapdoor position alternates +X/-X per lift (matching the
                 staircase direction), so no two adjacent levels have trapdoors
                 in the same position. Each trapdoor spans 2 plank widths. */}
-            {include_ladder && rosetteZs.map((z, levelIdx) => {
+            {hasPrimaryStaircase && rosetteZs.map((z, levelIdx) => {
               const opening = staircaseOpenings.computeForBayAndLift(0, levelIdx);
               if (!opening) return null;
               const trapX = opening.trapdoorX;
@@ -1027,7 +1033,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
           The staircase alternates Y face per lift, so both faces need
           continuous rails for the full tower height.
           Rails run along X (the bay length), at the bay's Y boundary. */}
-      {include_ladder && (() => {
+      {hasPrimaryStaircase && (() => {
         const railR = tubeR * 0.7;
         const railLenX = bayLayout.bayLengths[0]; // primary staircase bay length
         const bayStartX = bayLayout.standardXs[0];
@@ -1112,7 +1118,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
           The landing spans 3 plank widths along X, centered on xBottom,
           and spans the full bay width along Y. Aligned within the scaffold
           frame (bay center Y = 0), same gray material as regular gratings. */}
-      {include_ladder && Array.from({ length: num_lifts }).map((_, liftIdx) => {
+      {hasPrimaryStaircase && Array.from({ length: num_lifts }).map((_, liftIdx) => {
         const opening = staircaseOpenings.computeForBayAndLift(0, liftIdx);
         if (!opening) return null;
         const { xBottom } = opening;
@@ -1199,7 +1205,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
           adjacent levels have openings in the same position.
           Each section: 2 stringers + 5 steps + 1 guard rail
           (MDCRSC2134 + MDCGRFS2134 + MDCSFS0860). */}
-      {include_ladder && Array.from({ length: num_lifts }).map((_, liftIdx) => {
+      {hasPrimaryStaircase && Array.from({ length: num_lifts }).map((_, liftIdx) => {
         return renderStaircaseSection(
           0, // bay 0 (access bay)
           liftIdx,

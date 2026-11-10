@@ -263,8 +263,12 @@ export function TowerViewer({ config, onRemovePart, removedParts }: { config: To
             Handrails
           </Button>
 
-          {/* Ladder 1 focus button — shown only when primary ladder is enabled */}
-          {(debounced as { include_ladder?: boolean }).include_ladder && (() => {
+          {/* Staircase 1 focus button — shown when primary staircase is present.
+              Primary staircase is present when include_ladder is true OR when
+              secondary_access auto-triggers (the primary is the main access,
+              secondary is the escape — both render together). */}
+          {((debounced as { include_ladder?: boolean }).include_ladder ||
+            (debounced as { secondary_access?: boolean }).secondary_access) && (() => {
             const tY = debounced.bays_y * debounced.bay_length_y;
             const tH = debounced.num_lifts * debounced.lift_height;
             // Staircase midpoint = bay 0 center in X, middle of tower height in Z
