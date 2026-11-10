@@ -326,45 +326,41 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     towerY,
   ]);
 
-  // ─── STAIRCASE OPENING POSITIONS (per lift, non-adjacent) ─────────────
-  // For each lift level, the staircase goes from one end of the bay to the
-  // other. To avoid "adjacent ladder traps" (two consecutive levels with
-  // openings in the same position), the staircase DIRECTION alternates per
-  // lift: even lifts go -X→+X (on +Y face), odd lifts go +X→-X (on -Y face).
+  // ─── STAIRCASE OPENING POSITIONS (per lift, non-adjacent, 15° angle) ──
+  // The staircase is inclined at 15° from vertical (the standard safe ladder
+  // angle — the "1 in 4" rule). This makes it a steep stair/ladder hybrid.
   //
-  // This means:
-  //   - The 2-plank opening is at the +X end on even lifts, -X end on odd
-  //   - The staircase's top (where you exit onto the next platform) is at
-  //     +X on even lifts, -X on odd lifts — matching the next lift's
-  //     entrance (which is the previous lift's exit).
-  //   - No two adjacent levels have openings in the same X position → no
-  //     "adjacent ladder traps" (fall hazard is eliminated because each
-  //     platform is solid except for the one staircase entrance/exit).
+  // For a 2000mm lift height:
+  //   horizontal run = lift_height × tan(15°) ≈ 536mm
+  //   staircase length = lift_height / cos(15°) ≈ 2071mm (matches MDCRSC2134)
   //
-  // `getOpeningForLift(bayIdx, liftIdx)` returns the skip indices + the
-  // staircase direction for that bay+lift combination.
+  // The staircase TOP (exit) is at the 2-plank opening; the BOTTOM (entrance)
+  // is 536mm inward. Direction alternates per lift to avoid adjacent traps:
+  //   even lifts: opening at +X, staircase goes (-X inward)→(+X opening) on +Y
+  //   odd  lifts: opening at -X, staircase goes (+X inward)→(-X opening) on -Y
   const staircaseOpenings = useMemo(() => {
     const gap = 4;
     const pw = plank_width;
+    const angleFromVertical = 15 * (Math.PI / 180); // 15° in radians
+    const staircaseRun = lift_height * Math.tan(angleFromVertical); // horizontal run
+
     const computeForBayAndLift = (bayIdx: number, liftIdx: number) => {
       if (bayIdx >= bayLayout.bayCenters.length) return null;
       const bayLenX = bayLayout.bayLengths[bayIdx];
       const planksPerBay = Math.max(2, Math.floor((bayLenX + gap) / (pw + gap)));
       const stepX = bayLenX / planksPerBay;
       const bayStartX = bayLayout.standardXs[bayIdx];
+      const bayEndX = bayStartX + bayLenX;
       // Opening direction alternates per lift:
-      //   even lift (0, 2, 4): opening at +X end, staircase goes -X→+X on +Y face
-      //   odd  lift (1, 3, 5): opening at -X end, staircase goes +X→-X on -Y face
+      //   even lift (0, 2, 4): opening at +X end
+      //   odd  lift (1, 3, 5): opening at -X end
       const openingAtPlusX = liftIdx % 2 === 0;
       const count = 2; // 2 planks removed for staircase clearance
       const startIdx = openingAtPlusX ? planksPerBay - count : 0;
-      // Staircase spans the full bay length, inclined from one end to the other
-      const staircaseStartX = bayStartX; // -X end of bay
-      const staircaseEndX = bayStartX + bayLenX; // +X end of bay
-      // Staircase bottom (entrance) is at the OPPOSITE end from the opening
-      // (so you walk UP toward the opening, then exit onto the next platform)
-      const xBottom = openingAtPlusX ? staircaseStartX : staircaseEndX;
-      const xTop = openingAtPlusX ? staircaseEndX : staircaseStartX;
+      // Staircase TOP (exit) is at the opening end of the bay
+      const xTop = openingAtPlusX ? bayEndX : bayStartX;
+      // Staircase BOTTOM (entrance) is `staircaseRun` mm inward from the top
+      const xBottom = openingAtPlusX ? bayEndX - staircaseRun : bayStartX + staircaseRun;
       // Y face alternates per lift (non-adjacent)
       const onPlusY = liftIdx % 2 === 0;
       const yFace = onPlusY ? (towerY / 2 - 80) : -(towerY / 2 - 80);
@@ -379,12 +375,17 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       };
     };
     return { computeForBayAndLift };
-  }, [bayLayout, plank_width]);
+  }, [bayLayout, plank_width, lift_height, towerY]);
 
-  // ─── Staircase section helper ────────────────────────────────────────
+  // ─── Staircase section helper (15° from vertical) ────────────────────
   // Renders one inclined staircase section covering a single lift level.
-  // The staircase is inclined at ~70° from horizontal (for 2000mm lifts),
-  // with 2 stringers + 5 steps + 1 guard rail.
+  // The staircase is at 15° from vertical (75° from horizontal) — a steep
+  // stair/ladder hybrid (the standard safe ladder angle, "1 in 4" rule).
+  //
+  // For a 2000mm lift: horizontal run ≈ 536mm, staircase length ≈ 2071mm
+  // (matches MDCRSC2134 catalog length of 2134mm).
+  //
+  // Each section: 2 stringers + 5 steps + 1 guard rail.
   //
   // NON-ADJACENT PATTERN (no adjacent ladder traps):
   //   - Each section alternates between +Y and -Y faces per lift
