@@ -993,6 +993,89 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         );
       })()}
 
+      {/* ---- Landing pads (3 planks) at the bottom of each primary staircase ---- */}
+      {/* SAFETY: each staircase bottom needs a 3-plank-wide solid standing area
+          for safe access. These are rendered at the platform level below each
+          staircase entrance (or at ground level for lift 0).
+          The landing spans 3 plank widths along X, centered on xBottom,
+          and spans the full bay width along Y (like regular gratings). */}
+      {include_ladder && Array.from({ length: num_lifts }).map((_, liftIdx) => {
+        const opening = staircaseOpenings.computeForBayAndLift(0, liftIdx);
+        if (!opening) return null;
+        const { xBottom, yFace, onPlusY } = opening;
+        const pw = plank_width;
+        const gap = 4;
+        const landingThk = 8;
+        // Landing Z = bottom of this staircase's lift (= platform level below)
+        // For lift 0: z ≈ 0 (ground level, slightly above for visibility)
+        // For lift N: z = N * lift_height (platform level)
+        const landingZ = liftIdx === 0
+          ? landingThk / 2 + 2  // just above ground
+          : liftIdx * lift_height - landingThk / 2 - 2;  // just below platform surface
+        const plankLen = bay_length_y * 0.96;
+        // 3 planks, centered on xBottom, spanning along X
+        const landingWidth = pw * 3 + gap * 2;
+        return (
+          <group key={`landing-primary-L${liftIdx}`}>
+            {Array.from({ length: 3 }).map((_, pi) => {
+              const plankX = xBottom + (pi - 1) * (pw + gap);
+              return (
+                <mesh
+                  key={`landing-primary-L${liftIdx}-${pi}`}
+                  position={[plankX, yFace, landingZ]}
+                  material={materials.ladder}
+                  castShadow
+                  receiveShadow
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onPartClick) onPartClick(`Landing pad L${liftIdx + 1} plank ${pi + 1}`, [plankX, yFace, landingZ], `landing-primary-L${liftIdx}-${pi}`);
+                  }}
+                >
+                  <boxGeometry args={[pw, plankLen, landingThk]} />
+                </mesh>
+              );
+            })}
+          </group>
+        );
+      })}
+
+      {/* ---- Landing pads (3 planks) at the bottom of each secondary staircase ---- */}
+      {secondary_access && Array.from({ length: num_lifts }).map((_, liftIdx) => {
+        const lastBayIdx = bayLayout.bayCenters.length - 1;
+        const opening = staircaseOpenings.computeForBayAndLift(lastBayIdx, liftIdx);
+        if (!opening) return null;
+        const { xBottom, yFace } = opening;
+        const pw = plank_width;
+        const gap = 4;
+        const landingThk = 8;
+        const landingZ = liftIdx === 0
+          ? landingThk / 2 + 2
+          : liftIdx * lift_height - landingThk / 2 - 2;
+        const plankLen = bay_length_y * 0.96;
+        return (
+          <group key={`landing-secondary-L${liftIdx}`}>
+            {Array.from({ length: 3 }).map((_, pi) => {
+              const plankX = xBottom + (pi - 1) * (pw + gap);
+              return (
+                <mesh
+                  key={`landing-secondary-L${liftIdx}-${pi}`}
+                  position={[plankX, yFace, landingZ]}
+                  material={materials.ladderSecondary}
+                  castShadow
+                  receiveShadow
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onPartClick) onPartClick(`Secondary landing pad L${liftIdx + 1} plank ${pi + 1}`, [plankX, yFace, landingZ], `landing-secondary-L${liftIdx}-${pi}`);
+                  }}
+                >
+                  <boxGeometry args={[pw, plankLen, landingThk]} />
+                </mesh>
+              );
+            })}
+          </group>
+        );
+      })}
+
       {/* ---- Primary staircase sections (yellow, access bay 0) ---- */}
       {/* NON-ADJACENT ANGULAR STAIRCASES (no adjacent ladder traps):
           One inclined staircase per lift level. The staircase DIRECTION
