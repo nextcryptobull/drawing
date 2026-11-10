@@ -522,9 +522,12 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
   };
 
   // ─── Trapdoor renderer ────────────────────────────────────────────────
-  // Renders a small hatch (~1/3 of grating) with hinge turned TOWARDS the
-  // scaffold frame (interior). The hinge is on the INNER Y edge (scaffold
-  // center side) so the trapdoor opens towards the staircase (outward).
+  // Renders a hatch covering 2 grating frames, positioned WITHIN the scaffold
+  // frame. The trapdoor:
+  // - X: ~1/3 of bay length (the staircase opening area)
+  // - Y: 2 × plank_width (covers 2 grating frames)
+  // - Hinge on the INNER Y edge (towards scaffold center)
+  // - Positioned so the OUTER Y edge aligns with the outer standard (within frame)
   const renderTrapdoor = (
     opening: { xTop: number; yFace: number; onPlusY: boolean },
     bayLen: number,
@@ -533,16 +536,30 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     type: "primary" | "secondary",
   ) => {
     const pw = plank_width;
+    const gap = 4;
     const trapThk = 50;
     const trapLenX = bayLen / 3;
     const trapX = opening.xTop - trapLenX / 2;
-    const trapWidthY = pw;
-    const trapY = opening.yFace;
+    // Y width: 2 plank widths + gap (covers 2 grating frames)
+    const trapWidthY = pw * 2 + gap;
+
+    // Position so the trapdoor stays WITHIN the scaffold frame:
+    // The outer Y edge aligns just inside the outer standard (towerY/2 - margin)
+    // The inner Y edge points toward scaffold center
+    const frameMargin = 50; // 50mm inside the outer standard
+    const outerEdgeY = opening.onPlusY
+      ? towerY / 2 - frameMargin        // +Y staircase: outer edge at +Y side
+      : -(towerY / 2 - frameMargin);   // -Y staircase: outer edge at -Y side
+    // Trapdoor center = outer edge - half width (towards center)
+    const trapY = opening.onPlusY
+      ? outerEdgeY - trapWidthY / 2
+      : outerEdgeY + trapWidthY / 2;
+
     const gratingTopZ = z - 2;
     const trapZ = gratingTopZ + trapThk / 2;
     const hingeThk = 25;
     const hingeHeight = 35;
-    // Hinge on INNER Y edge (towards scaffold center, NOT outside)
+    // Hinge on INNER Y edge (towards scaffold center)
     const hingeY = opening.onPlusY
       ? trapY - trapWidthY / 2 - hingeThk / 2  // +Y staircase → hinge at -Y (inner)
       : trapY + trapWidthY / 2 + hingeThk / 2; // -Y staircase → hinge at +Y (inner)
