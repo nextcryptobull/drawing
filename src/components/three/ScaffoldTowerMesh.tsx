@@ -130,11 +130,9 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         metalness: 0.1,
       }),
       grating: new THREE.MeshStandardMaterial({
-        color: "#5a6c7a",
-        roughness: 0.5,
-        metalness: 0.7,
-        transparent: true,
-        opacity: 0.7,
+        color: "#8b6f47",
+        roughness: 0.85,
+        metalness: 0.1,
       }),
       toeboard: new THREE.MeshStandardMaterial({
         color: "#d4a017",
@@ -378,11 +376,16 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       const stepX = bayLenX / planksPerBay;
       const bayStartX = bayLayout.standardXs[bayIdx];
       const bayEndX = bayStartX + bayLenX;
-      // Opening direction alternates per lift for non-adjacent pattern.
-      // Even lifts: opening at +X end, odd lifts: opening at -X end.
-      // This ensures the exit of one staircase is at the opposite end from
-      // the entrance of the next — no stairs directly above each other.
-      const openingAtPlusX = liftIdx % 2 === 0;
+      // Opening direction alternates per lift.
+      // For access towers: even=+X, odd=-X (simple alternation per lift)
+      // For staircase towers: direction flips every 2 lifts (round) so that
+      // when returning to the same bay (lift 2 in bay 0), the direction is
+      // OPPOSITE from lift 0 — no stairs directly above each other.
+      // floor(liftIdx / numBays) % 2 gives the "round" number, which flips
+      // direction each time we cycle through all bays.
+      const numBays = bayLayout.bayCenters.length;
+      const round = Math.floor(liftIdx / Math.max(1, numBays));
+      const openingAtPlusX = round % 2 === 0 ? (liftIdx % 2 === 0) : (liftIdx % 2 === 1);
       const count = 2;
       const startIdx = openingAtPlusX ? planksPerBay - count : 0;
       // Staircase TOP (exit) at opening end
