@@ -378,16 +378,17 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       const stepX = bayLenX / planksPerBay;
       const bayStartX = bayLayout.standardXs[bayIdx];
       const bayEndX = bayStartX + bayLenX;
-      // Opening direction alternates per lift:
-      //   even lift (0, 2, 4): opening at +X end
-      //   odd  lift (1, 3, 5): opening at -X end
+      // Opening direction alternates per lift for non-adjacent pattern.
+      // Even lifts: opening at +X end, odd lifts: opening at -X end.
+      // This ensures the exit of one staircase is at the opposite end from
+      // the entrance of the next — no stairs directly above each other.
       const openingAtPlusX = liftIdx % 2 === 0;
-      const count = 2; // 2 planks removed for staircase clearance
+      const count = 2;
       const startIdx = openingAtPlusX ? planksPerBay - count : 0;
-      // Staircase TOP (exit) is at the opening end of the bay
+      // Staircase TOP (exit) at opening end
       const xTop = openingAtPlusX ? bayEndX : bayStartX;
-      // Staircase BOTTOM (entrance) is `staircaseRun` mm inward from the top
-      const xBottom = openingAtPlusX ? bayEndX - staircaseRun : bayStartX + staircaseRun;
+      // Staircase BOTTOM (entrance) at the opposite end (full bay span for stairs)
+      const xBottom = openingAtPlusX ? bayStartX : bayEndX;
       // Y face alternates per lift (non-adjacent), offset by startOnPlusY.
       // The yFace is the CENTERLINE of the staircase. The two stringers are
       // at yFace ± railOffset (±200mm). To keep both stringers INSIDE the
@@ -549,14 +550,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     const guardRailOffset = 100;
     const zBottom = liftIdx * lift_height;
     const zTop = (liftIdx + 1) * lift_height;
-    const { yFace, onPlusY } = opening;
-    // Stairs span the FULL bay length (not just the 536mm staircaseRun)
-    const bayLen = bayLayout.bayLengths[bayIdx];
-    const bayStartX = bayLayout.standardXs[bayIdx];
-    // Direction alternates per lift (non-adjacent pattern)
-    const openingAtPlusX = opening.xTop > opening.xBottom;
-    const xBottom = openingAtPlusX ? bayStartX : bayStartX + bayLen;
-    const xTop = openingAtPlusX ? bayStartX + bayLen : bayStartX;
+    const { yFace, onPlusY, xBottom, xTop } = opening;
     const dx = xTop - xBottom;
     const dz = zTop - zBottom;
     const len = Math.sqrt(dx * dx + dz * dz);
