@@ -1003,10 +1003,9 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
 
             {/* Trap doors — one per lift, at the staircase exit opening.
                 The trapdoor covers the 2-plank opening at the staircase's Y face.
-                Styled to match the galvanized steel platform surface (same gray
-                as gratings), with a thin dark border seam to identify it as a
-                hinged hatch. Matches the reference photo: galvanized steel decks
-                with no jarring color accents. */}
+                Raised 15mm ABOVE the grating surface so it's clearly visible as a
+                distinct hatch panel. Darker gray than gratings + thick visible
+                seam border (20mm) to identify it as a hinged trapdoor. */}
             {hasPrimaryStaircase && rosetteZs.map((z, levelIdx) => {
               const opening = staircaseOpenings.computeForBayAndLift(0, levelIdx, true);
               if (!opening) return null;
@@ -1014,6 +1013,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
               const pw = plank_width;
               const gap = 4;
               const gratingThk = 8;
+              const trapThk = 12; // slightly thicker than gratings
               const planksPerBay = Math.max(2, Math.floor((bay_length_y + gap) / (pw + gap)));
               const stepY = bay_length_y / planksPerBay;
               const bayStartY = -towerY / 2;
@@ -1021,16 +1021,19 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
               const startIdx = opening.onPlusY ? planksPerBay - count : 0;
               const trapY = bayStartY + (startIdx + count / 2) * stepY;
               const trapX = bayLayout.standardXs[0] + bayLen0 / 2;
-              const trapZ = z - gratingThk / 2 - 2;
+              // Raise trapdoor 15mm ABOVE grating surface so it's visible
+              const gratingTopZ = z - 2; // top surface of gratings
+              const trapZ = gratingTopZ + trapThk / 2 + 5; // 5mm gap above gratings
               const trapLenX = bayLen0 * 0.96;
               const trapWidthY = count * stepY * 0.92;
-              // Seam border: thin dark frame around the trapdoor edges
-              const seamThk = 2; // 2mm thin border
-              const seamColor = "#2a2a30"; // dark gray, subtle
-              const seamOffset = 3; // gap between trapdoor edge and seam
+              // Seam border: thick visible frame (20mm) around trapdoor edges
+              const seamThk = 20; // 20mm thick — visible at scaffold scale
+              const seamHeight = 25; // 25mm tall — rises above trapdoor
+              const seamColor = "#1a1a20"; // very dark gray
+              const seamOffset = 5; // gap between trapdoor edge and seam
               return (
                 <group key={`trapdoor-L${levelIdx}`}>
-                  {/* Main trapdoor panel — galvanized steel (same as gratings) */}
+                  {/* Main trapdoor panel — darker gray, raised above gratings */}
                   <mesh
                     position={[trapX, trapY, trapZ]}
                     castShadow
@@ -1040,29 +1043,28 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
                       if (onPartClick) onPartClick(`Trap door L${levelIdx + 1}`, [trapX, trapY, trapZ], `trapdoor-L${levelIdx}`);
                     }}
                   >
-                    <boxGeometry args={[trapLenX, trapWidthY, gratingThk]} />
-                    {/* Slightly darker gray than gratings to distinguish, but still galvanized */}
-                    <meshStandardMaterial color="#4a5260" roughness={0.6} metalness={0.7} />
+                    <boxGeometry args={[trapLenX, trapWidthY, trapThk]} />
+                    <meshStandardMaterial color="#3a4250" roughness={0.6} metalness={0.7} />
                   </mesh>
-                  {/* Seam border — 4 thin dark lines around the trapdoor edges */}
+                  {/* Visible seam frame — 4 thick dark bars around trapdoor edges */}
                   {/* Front edge (along X, at -Y side of trapdoor) */}
-                  <mesh position={[trapX, trapY - trapWidthY / 2 - seamOffset, trapZ + gratingThk / 2]}>
-                    <boxGeometry args={[trapLenX + seamOffset * 2, seamThk, seamThk]} />
+                  <mesh position={[trapX, trapY - trapWidthY / 2 - seamOffset, trapZ + trapThk / 2]}>
+                    <boxGeometry args={[trapLenX + seamOffset * 2, seamThk, seamHeight]} />
                     <meshStandardMaterial color={seamColor} roughness={0.8} metalness={0.3} />
                   </mesh>
                   {/* Back edge (along X, at +Y side) */}
-                  <mesh position={[trapX, trapY + trapWidthY / 2 + seamOffset, trapZ + gratingThk / 2]}>
-                    <boxGeometry args={[trapLenX + seamOffset * 2, seamThk, seamThk]} />
+                  <mesh position={[trapX, trapY + trapWidthY / 2 + seamOffset, trapZ + trapThk / 2]}>
+                    <boxGeometry args={[trapLenX + seamOffset * 2, seamThk, seamHeight]} />
                     <meshStandardMaterial color={seamColor} roughness={0.8} metalness={0.3} />
                   </mesh>
                   {/* Left edge (along Y, at -X side) */}
-                  <mesh position={[trapX - trapLenX / 2 - seamOffset, trapY, trapZ + gratingThk / 2]}>
-                    <boxGeometry args={[seamThk, trapWidthY + seamOffset * 2, seamThk]} />
+                  <mesh position={[trapX - trapLenX / 2 - seamOffset, trapY, trapZ + trapThk / 2]}>
+                    <boxGeometry args={[seamThk, trapWidthY + seamOffset * 2, seamHeight]} />
                     <meshStandardMaterial color={seamColor} roughness={0.8} metalness={0.3} />
                   </mesh>
-                  {/* Right edge (along Y, at +X side) — hinge side, slightly thicker */}
-                  <mesh position={[trapX + trapLenX / 2 + seamOffset, trapY, trapZ + gratingThk / 2]}>
-                    <boxGeometry args={[seamThk * 1.5, trapWidthY + seamOffset * 2, seamThk]} />
+                  {/* Right edge (along Y, at +X side) — hinge side, thicker */}
+                  <mesh position={[trapX + trapLenX / 2 + seamOffset, trapY, trapZ + trapThk / 2]}>
+                    <boxGeometry args={[seamThk * 1.5, trapWidthY + seamOffset * 2, seamHeight]} />
                     <meshStandardMaterial color={seamColor} roughness={0.8} metalness={0.3} />
                   </mesh>
                 </group>
