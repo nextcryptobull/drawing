@@ -527,11 +527,13 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
 
   // ─── Stairs renderer (real staircase with flat horizontal treads) ────
   // Unlike the ladder (renderStaircaseSection) which has inclined steps
-  // following the stringer angle, this renders proper STAIRS with:
-  // - 2 inclined stringers (like the ladder)
-  // - Flat HORIZONTAL treads at regular vertical intervals (not inclined)
+  // following the stringer angle at 15° from vertical, this renders proper
+  // STAIRS with a shallow angle (~35° from horizontal) and:
+  // - 2 inclined stringers (at ~35° from horizontal)
+  // - Flat HORIZONTAL treads (level, not following stringer angle)
   // - Each tread is a flat plank you step on (like real stairs)
   // - Guard rail on the outer side
+  // The staircase spans the full bay length, not just 536mm.
   const renderStairs = (
     bayIdx: number,
     liftIdx: number,
@@ -543,15 +545,22 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     if (bayIdx >= bayLayout.bayCenters.length) return null;
     const opening = staircaseOpenings.computeForBayAndLift(bayIdx, liftIdx, startOnPlusY);
     if (!opening) return null;
-    const railOffset = 200;
-    const stepCount = 5;
+    const railOffset = 200; // 400mm between stringers → ±200mm
     const guardRailOffset = 100;
     const zBottom = liftIdx * lift_height;
     const zTop = (liftIdx + 1) * lift_height;
-    const { xBottom, xTop, yFace, onPlusY } = opening;
+    const { yFace, onPlusY } = opening;
+    // Stairs span the FULL bay length (not just the 536mm staircaseRun)
+    const bayLen = bayLayout.bayLengths[bayIdx];
+    const bayStartX = bayLayout.standardXs[bayIdx];
+    // Direction alternates per lift (non-adjacent pattern)
+    const openingAtPlusX = opening.xTop > opening.xBottom;
+    const xBottom = openingAtPlusX ? bayStartX : bayStartX + bayLen;
+    const xTop = openingAtPlusX ? bayStartX + bayLen : bayStartX;
     const dx = xTop - xBottom;
     const dz = zTop - zBottom;
     const len = Math.sqrt(dx * dx + dz * dz);
+    // Stringer rotation (along the inclined direction)
     const dir = new THREE.Vector3(dx, 0, dz).normalize();
     const yAxis = new THREE.Vector3(0, 1, 0);
     const quat = new THREE.Quaternion().setFromUnitVectors(yAxis, dir);
@@ -559,9 +568,10 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     const midX = (xBottom + xTop) / 2;
     const midZ = (zBottom + zTop) / 2;
     // Tread dimensions: flat horizontal planks spanning between stringers
-    const treadWidth = railOffset * 2 + 40; // 440mm wide
-    const treadDepth = 120; // 120mm deep (front-to-back)
-    const treadThk = 20; // 20mm thick
+    const treadWidth = railOffset * 2 + 40; // 440mm wide (Y)
+    const treadDepth = 200; // 200mm deep (along the slope direction)
+    const treadThk = 30; // 30mm thick
+    const stepCount = 7; // 7 treads per lift (more comfortable than 5)
     return (
       <group
         key={`${partIdPrefix}-L${liftIdx}`}
@@ -570,7 +580,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
           if (onPartClick) onPartClick(`${partName} (lift ${liftIdx + 1})`, [midX, yFace, midZ], `${partIdPrefix}-L${liftIdx}`);
         }}
       >
-        {/* Left stringer */}
+        {/* Left stringer (inclined along the staircase direction) */}
         <mesh rotation={[euler.x, euler.y, euler.z]} position={[midX, yFace - railOffset, midZ]} material={material} castShadow>
           <cylinderGeometry args={[15, 15, len, 16]} />
         </mesh>
@@ -578,9 +588,9 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         <mesh rotation={[euler.x, euler.y, euler.z]} position={[midX, yFace + railOffset, midZ]} material={material} castShadow>
           <cylinderGeometry args={[15, 15, len, 16]} />
         </mesh>
-        {/* Flat horizontal treads — at regular vertical intervals */}
+        {/* Flat HORIZONTAL treads — level regardless of stringer angle */}
         {Array.from({ length: stepCount }).map((_, si) => {
-          const t = (si + 0.5) / stepCount;
+          const t = (si + 1) / (stepCount + 1); // 0.125, 0.25, ... 0.875
           const treadX = xBottom + dx * t;
           const treadZ = zBottom + dz * t;
           return (
@@ -590,12 +600,13 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
               material={material}
               castShadow
             >
-              {/* Flat horizontal tread: wide in Y, deep in X, thin in Z */}
+              {/* Flat horizontal tread: wide in Y, deep in X, thin in Z
+                  NO rotation — treads stay horizontal */}
               <boxGeometry args={[treadDepth, treadWidth, treadThk]} />
             </mesh>
           );
         })}
-        {/* Guard rail */}
+        {/* Guard rail — along the stringer, on the outer side */}
         <mesh
           rotation={[euler.x, euler.y, euler.z]}
           position={[midX, onPlusY ? yFace + railOffset + guardRailOffset : yFace - railOffset - guardRailOffset, midZ]}
@@ -604,6 +615,23 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         >
           <cylinderGeometry args={[12, 12, len, 16]} />
         </mesh>
+        {/* Vertical posts connecting guard rail to stringer (at each tread) */}
+        {Array.from({ length: stepCount }).map((_, si) => {
+          const t = (si + 1) / (stepCount + 1);
+          const postX = xBottom + dx * t;
+          const postZ = zBottom + dz * t;
+          const postHeight = guardRailOffset + 200; // post height from stringer to rail
+          return (
+            <mesh
+              key={`${partIdPrefix}-post-L${liftIdx}-${si}`}
+              position={[postX, onPlusY ? yFace + railOffset + postHeight / 2 : yFace - railOffset - postHeight / 2, postZ]}
+              material={material}
+              castShadow
+            >
+              <cylinderGeometry args={[8, 8, postHeight, 8]} />
+            </mesh>
+          );
+        })}
       </group>
     );
   };
