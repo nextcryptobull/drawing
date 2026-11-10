@@ -14,10 +14,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Scaffold Parts Configurator",
+  title: "Madacan — Scaffold Tower BOM Estimator",
   description:
-    "Interactive parametric configurator for scaffold parts: caster wheels, ringlock rosettes, and standards. Live 3D preview, STEP export, and BOM management.",
+    "Interactive parametric configurator for scaffold parts: caster wheels, ringlock rosettes, and standards. Live 3D preview, STEP export, and BOM management. By Madacan, Baku.",
   keywords: [
+    "Madacan",
+    "Baku",
     "scaffold",
     "CAD",
     "configurator",
@@ -27,7 +29,7 @@ export const metadata: Metadata = {
     "cadquery",
     "Three.js",
   ],
-  authors: [{ name: "Scaffold Parts Configurator" }],
+  authors: [{ name: "Madacan" }],
 };
 
 export default function RootLayout({

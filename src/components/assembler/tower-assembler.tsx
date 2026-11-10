@@ -135,6 +135,14 @@ export function TowerAssembler() {
       {/* Header */}
       <div className="border-b px-4 py-2 sm:px-6 sm:py-3">
         <div className="flex items-center gap-2">
+          {/* Madacan logo — links to home */}
+          <img
+            src="/madacan-logo.png"
+            alt="Madacan"
+            width={32}
+            height={36}
+            className="h-8 w-auto shrink-0 sm:h-9"
+          />
           <Boxes className="size-5 text-primary" />
           <h1 className="text-base font-semibold tracking-tight sm:text-lg">
             Scaffold Tower BOM Estimator
