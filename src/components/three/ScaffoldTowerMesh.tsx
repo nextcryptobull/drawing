@@ -53,7 +53,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     include_toeboards = true,
     disabled_platform_levels = [],
     include_ladder = false,
-    staircase_type = "stairs",
+    staircase_type = "ladder",
     staircase_tower = false,
     plank_width = 320,
     secondary_access = false,

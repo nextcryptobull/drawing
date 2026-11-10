@@ -626,7 +626,7 @@ export function assembleTower(
     include_braces: overrides?.include_braces ?? true,
     disabled_platform_levels: overrides?.disabled_platform_levels ?? [],
     include_ladder: overrides?.include_ladder ?? false,
-    staircase_type: overrides?.staircase_type ?? "stairs",
+    staircase_type: overrides?.staircase_type ?? "ladder",
     staircase_tower: overrides?.staircase_tower ?? false,
     plank_width: overrides?.plank_width ?? 320,
     secondary_access,
