@@ -232,6 +232,44 @@ const LADDER_WEIGHTS: Record<number, number> = {
 };
 
 /**
+ * Trapdoor with ladder weights (kg) by length — from BOM blank.xlsx catalog.
+ * Source rows r80–r82 (MDCTWL0xxx). One trapdoor per access bay opening per
+ * lift (replaces a section of the grating to allow ladder passage).
+ */
+const TRAPDOOR_WEIGHTS: Record<number, number> = {
+  1050: 13.70,   // MDCTWL1050
+  2072: 22.88,   // MDCTWL2072
+  2570: 24.10,   // MDCTWL2570
+};
+
+/**
+ * Steel gap filler weights (kg) by length — from BOM blank.xlsx catalog.
+ * Source rows r114–r117 (MDCSGF0xxx). Gap fillers bridge the small residual
+ * space between the steel plank and the ledger when the plank length doesn't
+ * exactly match the bay length.
+ */
+const GAP_FILLER_WEIGHTS: Record<number, number> = {
+  500: 3.02,     // MDCSGF500
+  1520: 9.73,    // MDCSGF1520
+  2080: 13.41,   // MDCSGF2080
+  2520: 16.31,   // MDCSGF2520
+};
+
+/**
+ * Removable staircase + accessories (kg) — from BOM blank.xlsx catalog.
+ * Staircases are used in long façade scaffolds for safer access than ladders.
+ *   MDCRSC2134  REMOVABLE_STAIRCASE      60.50 kg  (1 per staircase)
+ *   MDCGRFS2134 GUARD RAIL FOR STAIRCASE  11.70 kg  (1 per staircase)
+ *   MDCSFS0860  STEP-FOR-STAIRCASE        4.05 kg  (5 per staircase)
+ */
+const REMOVABLE_STAIRCASE_WEIGHT = 60.50;
+const STAIRCASE_GUARD_RAIL_WEIGHT = 11.70;
+const STAIRCASE_STEP_WEIGHT = 4.05;
+const STEPS_PER_STAIRCASE = 5;
+// Staircases spaced every ~6m of tower length (matches façade Tana 1: 50m → 8 staircases)
+const STAIRCASE_SPACING_MM = 6000;
+
+/**
  * Base / caster / spigot weights (kg) — single-piece catalog values.
  */
 const SOLE_BOARD_WEIGHT = 1.80;             // MDCSLB0450  SOLE BOARDS0450
@@ -785,18 +823,20 @@ export function assembleTower(
     }
   }
 
-  // BASE JACKS / WHEELS — catalog values from BOM blank.xlsx.
-  //   MDCBCO0600  SWIVEL BASE JACK  = 3.81 kg  (default for "jack" type)
-  //   MDCFBJ0600  FIX_BASE_JACK    = 3.39 kg
-  //   MDCWHE0300  WHEEL (heavy-duty total-lock) = 17.00 kg
-  // Note: catalog WHEEL weight (17 kg) is much heavier than the typical
-  // 8" caster (5–7 kg). Treated as authoritative per BOM blank.xlsx.
+  // BASE ASSEMBLY (sole board + base collar + base jack/wheel per standard).
+  // Reference BOMs include all three per standard base. Default base jack
+  // changed to FIX (MDCFBJ0600) to match both reference BOMs.
+  //   MDCSLB0450  SOLE BOARDS0450    = 1.80 kg  (1 per standard, jack base only)
+  //   MDCBCO0280  BASE_COLLAR        = 1.72 kg  (1 per standard, jack base only)
+  //   MDCFBJ0600  FIX_BASE_JACK      = 3.39 kg  (default for "jack" type)
+  //   MDCBCO0600  SWIVEL_BASE_JACK   = 3.81 kg  (alternative jack — not default)
+  //   MDCWHE0300  WHEEL              = 17.00 kg (heavy-duty total-lock)
   {
     const isWheel = config.base_type === "wheel";
-    const unitW = isWheel ? WHEEL_WEIGHT : SWIVEL_BASE_JACK_WEIGHT;
+    const unitW = isWheel ? WHEEL_WEIGHT : FIXED_BASE_JACK_WEIGHT;
     const desc = isWheel
       ? 'Wheel (heavy-duty total-lock) — MDCWHE0300'
-      : "Swivel base jack 38×600mm — MDCBCO0600";
+      : "Fix base jack 38×600mm — MDCFBJ0600";
     const totalW = baseJacks * unitW;
     totalWeight += totalW;
     details.push({
@@ -807,43 +847,93 @@ export function assembleTower(
       unit_weight_kg: unitW,
       total_weight_kg: Math.round(totalW * 100) / 100,
     });
+
+    // Sole boards + base collars — only for jack bases (wheels have their
+    // own mounting, no sole board needed).
+    if (!isWheel) {
+      const soleW = baseJacks * SOLE_BOARD_WEIGHT;
+      totalWeight += soleW;
+      details.push({
+        part_type: "Sole board",
+        description: "Sole board 450mm (under base jack) — MDCSLB0450",
+        size: "450mm",
+        quantity: baseJacks,
+        unit_weight_kg: SOLE_BOARD_WEIGHT,
+        total_weight_kg: Math.round(soleW * 100) / 100,
+      });
+
+      const collarW = baseJacks * BASE_COLLAR_WEIGHT;
+      totalWeight += collarW;
+      details.push({
+        part_type: "Base collar",
+        description: "Base collar (connects jack to standard) — MDCBCO0280",
+        size: "280mm",
+        quantity: baseJacks,
+        unit_weight_kg: BASE_COLLAR_WEIGHT,
+        total_weight_kg: Math.round(collarW * 100) / 100,
+      });
+    }
   }
 
-  // ROSETTES — small welded disc on standards (not separately cataloged;
-  // the catalog has ROSETTE CLAMPS at 1.16 kg but that's a removable
-  // clamp, not the rosette disc itself). Keep 0.6 kg as a sensible estimate.
+  // SPIGOT WITH COUPLER for stacked standards (MDCSWC0125 = 1.25 kg).
+  // When tower height > 3m, each standard stack is assembled from multiple
+  // segments (3m + 3m + 2m for 8m, etc.) joined by spigot couplers.
+  // Number of spigots per stack = (number of segments - 1).
   {
-    const unitW = 0.6;
-    const totalW = rosettes * unitW;
-    totalWeight += totalW;
-    details.push({
-      part_type: "Rosette",
-      description: "Rosette Ø122×10mm (welded to standard)",
-      size: "Ø122mm",
-      quantity: rosettes,
-      unit_weight_kg: unitW,
-      total_weight_kg: Math.round(totalW * 100) / 100,
-    });
+    const segmentsPerStack = standardSegments.length;
+    const spigotsPerStack = Math.max(0, segmentsPerStack - 1);
+    const spigotQty = spigotsPerStack * numStandards;
+    if (spigotQty > 0) {
+      const totalW = spigotQty * SPIGOT_WITH_COUPLER_WEIGHT;
+      totalWeight += totalW;
+      details.push({
+        part_type: "Spigot with coupler",
+        description: `Spigot with coupler (standard joint) — MDCSWC0125  ×${spigotsPerStack} per standard`,
+        size: "125mm",
+        quantity: spigotQty,
+        unit_weight_kg: SPIGOT_WITH_COUPLER_WEIGHT,
+        total_weight_kg: Math.round(totalW * 100) / 100,
+      });
+    }
   }
 
-  // GRATINGS (steel planks with hook, width = plank_width, length = bay_length_y).
-  // Catalog MDCSPH0xxx — single table for both widths (catalog doesn't
-  // differentiate). For 230mm planks, weights are scaled by 230/320 = 0.719.
+  // GRATINGS (steel planks with hook, width = plank_width, length = bay_length_x).
+  // Catalog MDCSPH0xxx. The planks span across the X-bay (rest on Y-ledgers),
+  // so plank LENGTH = bay_length_x (per section). One BOM line per unique
+  // bay_length so each catalog size gets its own entry.
+  // For 230mm planks, weights are scaled by 230/320 = 0.719.
   if (gratings > 0) {
     const pw = config.plank_width;
-    const plankLen = bayY.size; // grating length = bay_length_y
     const plankWeights = plankWeightTable(pw);
-    const unitW = lookupWeight(plankWeights, plankLen, plankKgPerM(pw), plankEndWeight(pw));
-    const totalW = gratings * unitW;
-    totalWeight += totalW;
-    details.push({
-      part_type: "Grating",
-      description: `Steel hook plank ${pw}×${Math.round(plankLen)}mm — MDCSPH${String(Math.round(plankLen)).padStart(4, "0")}${pw === 230 ? " (230mm scaled)" : ""}`,
-      size: `${pw}×${Math.round(plankLen)}mm`,
-      quantity: gratings,
-      unit_weight_kg: Math.round(unitW * 100) / 100,
-      total_weight_kg: Math.round(totalW * 100) / 100,
-    });
+    const enabledLevelsCount = numLifts - config.disabled_platform_levels.length;
+    const gap = 4;
+
+    for (const [lenStr, numBays] of Object.entries(bayLengthGroupsX)) {
+      const len = parseInt(lenStr);
+      const planksPerBay = Math.max(1, Math.floor((len + gap) / (pw + gap)));
+      // Access bay (first bay of first section) has one row open for trapdoor.
+      const accessBayLength = sections ? sections[0].bay_length : bayX.size;
+      const isAccessLength = len === accessBayLength;
+      const accessBaysAtThisLength = isAccessLength ? 1 : 0;
+      const nonAccessBaysAtThisLength = numBays - accessBaysAtThisLength;
+      const planksThisLength = (
+        Math.max(0, planksPerBay - 1) * accessBaysAtThisLength +
+        planksPerBay * nonAccessBaysAtThisLength
+      ) * bayY.count * enabledLevelsCount;
+      if (planksThisLength <= 0) continue;
+
+      const unitW = lookupWeight(plankWeights, len, plankKgPerM(pw), plankEndWeight(pw));
+      const totalW = planksThisLength * unitW;
+      totalWeight += totalW;
+      details.push({
+        part_type: "Grating",
+        description: `Steel hook plank ${pw}×${len}mm — MDCSPH${String(len).padStart(4, "0")}${pw === 230 ? " (230mm scaled)" : ""}`,
+        size: `${pw}×${len}mm`,
+        quantity: planksThisLength,
+        unit_weight_kg: Math.round(unitW * 100) / 100,
+        total_weight_kg: Math.round(totalW * 100) / 100,
+      });
+    }
   }
 
   // TOEBOARDS — per-length catalog weights (MDCTOB0xxx).
@@ -897,6 +987,9 @@ export function assembleTower(
   // Catalog doesn't list a guardrail-post assembled item — keep the 8.35 kg
   // estimate (post + end fittings + small rosette). TUBE_1000 = 3.55 kg in
   // catalog is just bare pipe, not the assembled post.
+  // NOTE: Reference BOMs don't list guardrail posts separately — they appear
+  // to be baked into the trapdoor-with-ladder assembly. Kept here as an
+  // engineering estimate so the tonnage isn't under-counted.
   {
     const grQty = numStandards;
     const unitW = 8.35;
@@ -910,6 +1003,75 @@ export function assembleTower(
       unit_weight_kg: unitW,
       total_weight_kg: Math.round(totalW * 100) / 100,
     });
+  }
+
+  // TRAPDOOR WITH LADDER (MDCWL0xxx) — at each lift on access bays.
+  // Each access bay has 1 trapdoor per lift (replaces a section of grating).
+  // Per reference BOMs: 8 trapdoors for 4 lifts → 2 access bays × 4 lifts.
+  // Length chosen from catalog: closest to access bay's bay_length_x.
+  if (config.include_gratings && config.include_ladder) {
+    const accessBayLength = sections ? sections[0].bay_length : bayX.size;
+    // Pick closest catalog trapdoor length
+    const trapdoorKeys = Object.keys(TRAPDOOR_WEIGHTS).map(Number);
+    const trapdoorLen = trapdoorKeys.reduce((closest, current) =>
+      Math.abs(current - accessBayLength) < Math.abs(closest - accessBayLength)
+        ? current : closest, trapdoorKeys[0]);
+    const numAccessBays = 1 + (config.secondary_access ? 1 : 0);
+    const trapdoorQty = numAccessBays * numLifts;
+    const unitW = TRAPDOOR_WEIGHTS[trapdoorLen];
+    const totalW = trapdoorQty * unitW;
+    totalWeight += totalW;
+    details.push({
+      part_type: "Trapdoor with ladder",
+      description: `Trapdoor with ladder ${trapdoorLen}mm — MDCTWL${String(trapdoorLen).padStart(4, "0")}  ×${numAccessBays} access bay(s) × ${numLifts} lifts`,
+      size: `${trapdoorLen}mm`,
+      quantity: trapdoorQty,
+      unit_weight_kg: unitW,
+      total_weight_kg: Math.round(totalW * 100) / 100,
+    });
+  }
+
+  // STEEL GAP FILLER (MDCSGF0xxx) — bridges residual gap between steel planks
+  // and ledgers. Per reference BOMs: ~2 per bay (one at each end of the bay
+  // along X). Length chosen from catalog: closest to (bay_length - 50mm).
+  // Grouped by catalog length.
+  if (config.include_gratings && gratings > 0) {
+    const gapFillerGroups: Record<number, number> = {};
+    const addGapFillersForBayLength = (bayLength: number, numBays: number) => {
+      // 2 gap fillers per bay (one at each end), not per lift.
+      const qty = numBays * 2;
+      if (qty <= 0) return;
+      const targetLen = bayLength - 50;
+      const gapKeys = Object.keys(GAP_FILLER_WEIGHTS).map(Number);
+      const gapLen = gapKeys.reduce((closest, current) =>
+        Math.abs(current - targetLen) < Math.abs(closest - targetLen)
+          ? current : closest, gapKeys[0]);
+      gapFillerGroups[gapLen] = (gapFillerGroups[gapLen] ?? 0) + qty;
+    };
+
+    if (sections) {
+      sections.forEach((sec) => {
+        addGapFillersForBayLength(sec.bay_length, sec.bays);
+      });
+    } else {
+      addGapFillersForBayLength(bayX.size, bayX.count);
+    }
+
+    for (const [lenStr, qty] of Object.entries(gapFillerGroups)) {
+      const lenMm = parseInt(lenStr);
+      if (qty <= 0) continue;
+      const unitW = GAP_FILLER_WEIGHTS[lenMm];
+      const totalW = qty * unitW;
+      totalWeight += totalW;
+      details.push({
+        part_type: "Steel gap filler",
+        description: `Steel gap filler ${lenMm}mm (between planks and ledgers, 2 per bay) — MDCSGF${String(lenMm).padStart(4, "0")}`,
+        size: `${lenMm}mm`,
+        quantity: qty,
+        unit_weight_kg: unitW,
+        total_weight_kg: Math.round(totalW * 100) / 100,
+      });
+    }
   }
 
   // PRIMARY LADDER (if enabled).
@@ -945,6 +1107,45 @@ export function assembleTower(
       quantity: 1,
       unit_weight_kg: Math.round(totalW * 100) / 100,
       total_weight_kg: Math.round(totalW * 100) / 100,
+    });
+  }
+
+  // REMOVABLE STAIRCASE + ACCESSORIES (MDCRSC2134 + MDCGRFS2134 + MDCSFS0860).
+  // Per reference BOM façade Tana 1 (50×2×8m): 8 staircases, 8 guard rails,
+  // 40 steps (5 per staircase). Spacing ≈ 6m along tower length.
+  // Triggered when secondary_access is true (auto at ≥20m height/length).
+  if (config.secondary_access) {
+    const staircaseCount = Math.max(1, Math.floor(actualLength / STAIRCASE_SPACING_MM));
+    const staircaseTotalW = staircaseCount * REMOVABLE_STAIRCASE_WEIGHT;
+    const guardRailTotalW = staircaseCount * STAIRCASE_GUARD_RAIL_WEIGHT;
+    const stepQty = staircaseCount * STEPS_PER_STAIRCASE;
+    const stepTotalW = stepQty * STAIRCASE_STEP_WEIGHT;
+
+    totalWeight += staircaseTotalW + guardRailTotalW + stepTotalW;
+
+    details.push({
+      part_type: "Removable staircase",
+      description: `Removable staircase 2134mm — MDCRSC2134  (1 per ~6m of length)`,
+      size: "2134mm",
+      quantity: staircaseCount,
+      unit_weight_kg: REMOVABLE_STAIRCASE_WEIGHT,
+      total_weight_kg: Math.round(staircaseTotalW * 100) / 100,
+    });
+    details.push({
+      part_type: "Staircase guard rail",
+      description: `Guard rail for staircase — MDCGRFS2134  (1 per staircase)`,
+      size: "2134mm",
+      quantity: staircaseCount,
+      unit_weight_kg: STAIRCASE_GUARD_RAIL_WEIGHT,
+      total_weight_kg: Math.round(guardRailTotalW * 100) / 100,
+    });
+    details.push({
+      part_type: "Staircase step",
+      description: `Step for staircase — MDCSFS0860  (5 per staircase)`,
+      size: "860mm",
+      quantity: stepQty,
+      unit_weight_kg: STAIRCASE_STEP_WEIGHT,
+      total_weight_kg: Math.round(stepTotalW * 100) / 100,
     });
   }
 
