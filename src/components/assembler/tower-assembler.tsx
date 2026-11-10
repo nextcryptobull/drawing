@@ -577,6 +577,29 @@ export function TowerAssembler() {
                             onChange={(v) => updateFromConfig({ include_ladder: v })}
                           />
 
+                          {/* Staircase type toggle: Stairs (flat treads) / Ladder (15° inclined) */}
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs text-muted-foreground">Staircase type</span>
+                            <div className="flex gap-1">
+                              <Button
+                                variant={result.config.staircase_type === "stairs" ? "default" : "outline"}
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => updateFromConfig({ staircase_type: "stairs" })}
+                              >
+                                Stairs
+                              </Button>
+                              <Button
+                                variant={result.config.staircase_type === "ladder" ? "default" : "outline"}
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => updateFromConfig({ staircase_type: "ladder" })}
+                              >
+                                Ladder
+                              </Button>
+                            </div>
+                          </div>
+
                           {/* Secondary access toggle (auto at ≥20m height/length) */}
                           <ToggleRow
                             label={(() => {

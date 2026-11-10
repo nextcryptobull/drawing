@@ -38,6 +38,8 @@ export interface BayConfig {
   disabled_platform_levels: number[];
   /** Include ladder on access side */
   include_ladder: boolean;
+  /** Staircase type: 'ladder' (15° inclined, compact) or 'stairs' (proper staircase with flat treads) */
+  staircase_type: "ladder" | "stairs";
   /** Plank width: 320mm (heavy-duty) or 230mm (light) */
   plank_width: 320 | 230;
   /** Secondary access ladder (auto at >=20m height or length) */
@@ -159,10 +161,13 @@ export const CATALOG_LEDGER_LENGTHS: Array<{ length: number; code: string }> = [
 /**
  * Reinforced ledger weights (kg) — heavier variants for X-bay long spans.
  * Source rows r30–r33 (MDCRLE0xxx).
+ * Note: catalog uses 2072mm (MDCRLE2072), but standard bay length is 2070mm.
+ * Both 2070 and 2072 map to the same catalog item (2mm tolerance).
  */
 const REINFORCED_LEDGER_WEIGHTS: Record<number, number> = {
   1570: 9.08,   // MDCRLE1570
-  2072: 12.00,  // MDCRLE2072
+  2070: 12.00,  // MDCRLE2072 (bay_length 2070mm → catalog 2072mm)
+  2072: 12.00,  // MDCRLE2072 (exact catalog match)
   2134: 12.32,  // MDCRLE2134
   2570: 14.54,  // MDCRLE2570
 };
@@ -619,6 +624,7 @@ export function assembleTower(
     include_braces: overrides?.include_braces ?? true,
     disabled_platform_levels: overrides?.disabled_platform_levels ?? [],
     include_ladder: overrides?.include_ladder ?? false,
+    staircase_type: overrides?.staircase_type ?? "stairs",
     plank_width: overrides?.plank_width ?? 320,
     secondary_access,
     sections,
@@ -1335,6 +1341,7 @@ export function assemblyToTowerConfig(result: AssemblyResult) {
     base_type: result.config.base_type,
     disabled_platform_levels: result.config.disabled_platform_levels,
     include_ladder: result.config.include_ladder,
+    staircase_type: result.config.staircase_type,
     plank_width: result.config.plank_width,
     secondary_access: result.config.secondary_access,
     sections: result.config.sections,

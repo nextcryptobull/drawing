@@ -53,6 +53,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     include_toeboards = true,
     disabled_platform_levels = [],
     include_ladder = false,
+    staircase_type = "stairs",
     plank_width = 320,
     secondary_access = false,
     sections,
@@ -62,6 +63,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     include_toeboards?: boolean;
     disabled_platform_levels?: number[];
     include_ladder?: boolean;
+    staircase_type?: "ladder" | "stairs";
     plank_width?: 320 | 230;
     secondary_access?: boolean;
     sections?: Array<{ bays: number; bay_length: number }>;
@@ -521,7 +523,88 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     );
   };
 
-  // ─── Trapdoor renderer ────────────────────────────────────────────────
+  // ─── Stairs renderer (real staircase with flat horizontal treads) ────
+  // Unlike the ladder (renderStaircaseSection) which has inclined steps
+  // following the stringer angle, this renders proper STAIRS with:
+  // - 2 inclined stringers (like the ladder)
+  // - Flat HORIZONTAL treads at regular vertical intervals (not inclined)
+  // - Each tread is a flat plank you step on (like real stairs)
+  // - Guard rail on the outer side
+  const renderStairs = (
+    bayIdx: number,
+    liftIdx: number,
+    material: THREE.Material,
+    partName: string,
+    partIdPrefix: string,
+    startOnPlusY: boolean,
+  ) => {
+    if (bayIdx >= bayLayout.bayCenters.length) return null;
+    const opening = staircaseOpenings.computeForBayAndLift(bayIdx, liftIdx, startOnPlusY);
+    if (!opening) return null;
+    const railOffset = 200;
+    const stepCount = 5;
+    const guardRailOffset = 100;
+    const zBottom = liftIdx * lift_height;
+    const zTop = (liftIdx + 1) * lift_height;
+    const { xBottom, xTop, yFace, onPlusY } = opening;
+    const dx = xTop - xBottom;
+    const dz = zTop - zBottom;
+    const len = Math.sqrt(dx * dx + dz * dz);
+    const dir = new THREE.Vector3(dx, 0, dz).normalize();
+    const yAxis = new THREE.Vector3(0, 1, 0);
+    const quat = new THREE.Quaternion().setFromUnitVectors(yAxis, dir);
+    const euler = new THREE.Euler().setFromQuaternion(quat);
+    const midX = (xBottom + xTop) / 2;
+    const midZ = (zBottom + zTop) / 2;
+    // Tread dimensions: flat horizontal planks spanning between stringers
+    const treadWidth = railOffset * 2 + 40; // 440mm wide
+    const treadDepth = 120; // 120mm deep (front-to-back)
+    const treadThk = 20; // 20mm thick
+    return (
+      <group
+        key={`${partIdPrefix}-L${liftIdx}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (onPartClick) onPartClick(`${partName} (lift ${liftIdx + 1})`, [midX, yFace, midZ], `${partIdPrefix}-L${liftIdx}`);
+        }}
+      >
+        {/* Left stringer */}
+        <mesh rotation={[euler.x, euler.y, euler.z]} position={[midX, yFace - railOffset, midZ]} material={material} castShadow>
+          <cylinderGeometry args={[15, 15, len, 16]} />
+        </mesh>
+        {/* Right stringer */}
+        <mesh rotation={[euler.x, euler.y, euler.z]} position={[midX, yFace + railOffset, midZ]} material={material} castShadow>
+          <cylinderGeometry args={[15, 15, len, 16]} />
+        </mesh>
+        {/* Flat horizontal treads — at regular vertical intervals */}
+        {Array.from({ length: stepCount }).map((_, si) => {
+          const t = (si + 0.5) / stepCount;
+          const treadX = xBottom + dx * t;
+          const treadZ = zBottom + dz * t;
+          return (
+            <mesh
+              key={`${partIdPrefix}-tread-L${liftIdx}-${si}`}
+              position={[treadX, yFace, treadZ]}
+              material={material}
+              castShadow
+            >
+              {/* Flat horizontal tread: wide in Y, deep in X, thin in Z */}
+              <boxGeometry args={[treadDepth, treadWidth, treadThk]} />
+            </mesh>
+          );
+        })}
+        {/* Guard rail */}
+        <mesh
+          rotation={[euler.x, euler.y, euler.z]}
+          position={[midX, onPlusY ? yFace + railOffset + guardRailOffset : yFace - railOffset - guardRailOffset, midZ]}
+          material={material}
+          castShadow
+        >
+          <cylinderGeometry args={[12, 12, len, 16]} />
+        </mesh>
+      </group>
+    );
+  };
   // Renders a hatch covering 2 grating frames, positioned WITHIN the scaffold
   // frame. The trapdoor:
   // - X: ~1/3 of bay length (the staircase opening area)
@@ -1293,40 +1376,31 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       })}
 
       {/* ---- Primary staircase sections (yellow, access bay 0) ---- */}
-      {/* NON-ADJACENT ANGULAR STAIRCASES (no adjacent ladder traps):
-          One inclined staircase per lift level. The staircase DIRECTION
-          alternates per lift:
-            even lifts: -X → +X on +Y face (opening at +X end)
-            odd  lifts: +X → -X on -Y face (opening at -X end)
-          This means the exit of one staircase = the entrance of the next,
-          and the platform opening alternates +X/-X per lift → no two
-          adjacent levels have openings in the same position.
-          Each section: 2 stringers + 5 steps + 1 guard rail
-          (MDCRSC2134 + MDCGRFS2134 + MDCSFS0860). */}
+      {/* Renders either 'stairs' (flat horizontal treads) or 'ladder' (inclined
+          steps at 15°) based on staircase_type config. Default = 'stairs'. */}
       {hasPrimaryStaircase && Array.from({ length: num_lifts }).map((_, liftIdx) => {
-        return renderStaircaseSection(
-          0, // bay 0 (access bay)
+        const renderFn = staircase_type === "stairs" ? renderStairs : renderStaircaseSection;
+        return renderFn(
+          0,
           liftIdx,
           materials.ladder,
           "Primary staircase",
           "staircase-primary",
-          true, // start on +Y
+          true,
         );
       })}
 
       {/* ---- Secondary staircase sections (orange, escape, last bay) ---- */}
-      {/* Same non-adjacent angular pattern, but starts on -Y (opposite face from primary).
-          The direction alternation is the same (even lifts: -X→+X, odd: +X→-X), so
-          the secondary staircase also has no adjacent ladder traps. */}
       {secondary_access && Array.from({ length: num_lifts }).map((_, liftIdx) => {
         const lastBayIdx = bayLayout.bayCenters.length - 1;
-        return renderStaircaseSection(
-          lastBayIdx, // last bay
+        const renderFn = staircase_type === "stairs" ? renderStairs : renderStaircaseSection;
+        return renderFn(
+          lastBayIdx,
           liftIdx,
           materials.ladderSecondary,
           "Secondary staircase (escape)",
           "staircase-secondary",
-          false, // start on -Y (opposite of primary)
+          false,
         );
       })}
     </group>
