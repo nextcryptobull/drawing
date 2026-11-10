@@ -7,6 +7,7 @@ import {
   ArrowRight,
   Boxes,
   Download,
+  FileText,
   Layers,
   Loader2,
   Minus,
@@ -28,6 +29,7 @@ import {
   CATALOG_LEDGER_LENGTHS,
   type BayConfig,
 } from "@/lib/tower-assembler";
+import { generateBomPdf } from "@/lib/generate-bom-pdf";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,6 +66,7 @@ const TowerViewer = dynamic(
 export function TowerAssembler() {
   const [input, setInput] = useState("2x2x6m");
   const [downloading, setDownloading] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [overrides, setOverrides] = useState<Partial<BayConfig>>({});
   const [removedParts, setRemovedParts] = useState<Set<string>>(new Set());
 
@@ -79,6 +82,33 @@ export function TowerAssembler() {
     if (!result) return null;
     return assemblyToTowerConfig(result);
   }, [result]);
+
+  /**
+   * Generate a comprehensive BOM PDF (with Madacan logo, full BOM table,
+   * totals, page numbers). Runs entirely client-side via jsPDF.
+   */
+  async function handleDownloadPdf() {
+    if (!result) {
+      toast.error("Invalid dimensions", {
+        description: "Enter dimensions like '2x2x6m' or '2570x2000x6000mm'",
+      });
+      return;
+    }
+
+    setDownloadingPdf(true);
+    try {
+      await generateBomPdf(result);
+      toast.success("BOM PDF generated", {
+        description: `${result.bom.total_parts} parts · ${result.bom.estimated_weight_kg.toLocaleString()} kg · ${formatDimensions(result.actualDimensions)}`,
+      });
+    } catch (err) {
+      toast.error("PDF generation failed", {
+        description: (err as Error).message,
+      });
+    } finally {
+      setDownloadingPdf(false);
+    }
+  }
 
   async function handleDownloadStep() {
     if (!result) {
@@ -632,9 +662,31 @@ export function TowerAssembler() {
                               STEP file with all {result.bom.total_parts} parts · opens in SolidWorks, Inventor, Fusion 360
                             </div>
                           </div>
+                          {/* BOM PDF — client-side, instant */}
+                          <Button
+                            onClick={handleDownloadPdf}
+                            disabled={downloadingPdf || downloading}
+                            variant="outline"
+                            className="mb-2 w-full"
+                            size="lg"
+                          >
+                            {downloadingPdf ? (
+                              <>
+                                <Loader2 className="mr-2 size-4 animate-spin" />
+                                Generating PDF...
+                              </>
+                            ) : (
+                              <>
+                                <FileText className="mr-2 size-4" />
+                                Download BOM PDF
+                                <ArrowRight className="ml-2 size-4" />
+                              </>
+                            )}
+                          </Button>
+                          {/* STEP file — server-side, slower */}
                           <Button
                             onClick={handleDownloadStep}
-                            disabled={downloading}
+                            disabled={downloading || downloadingPdf}
                             className="w-full"
                             size="lg"
                           >
