@@ -395,30 +395,22 @@ export function computeSectionLayout(
 }
 
 /**
- * Split a total height into standard ringlock standard lengths.
- * E.g. 8m → 3m + 3m + 2m (not one 8m bar, which doesn't exist).
- * Uses the largest available standard sizes first (greedy approach).
+ * Split a total height into standard lengths.
+ * Uses ONLY 3m standards (matches reference BOM practice — no 2m or shorter
+ * standards, no spigot couplers needed). If the height doesn't divide evenly
+ * by 3000, the last standard is trimmed (cut to size on site).
  */
 function splitIntoStandards(totalHeight: number): { length: number; weight: number }[] {
   const result: { length: number; weight: number }[] = [];
-  let remaining = totalHeight;
-
-  // Greedy: use largest standards first
-  const sortedLengths = [...STANDARD_LENGTHS].sort((a, b) => b - a);
-
-  for (const len of sortedLengths) {
-    while (remaining >= len) {
-      result.push({ length: len, weight: STANDARD_WEIGHTS[len] });
-      remaining -= len;
-    }
+  const stdLen = 3000;
+  const numFull = Math.floor(totalHeight / stdLen);
+  for (let i = 0; i < numFull; i++) {
+    result.push({ length: stdLen, weight: STANDARD_WEIGHTS[stdLen] });
   }
-
-  // If there's a remainder, pick the smallest standard that covers it
-  if (remaining > 0) {
-    const closest = STANDARD_LENGTHS.find(l => l >= remaining) ?? STANDARD_LENGTHS[0];
-    result.push({ length: closest, weight: STANDARD_WEIGHTS[closest] });
+  // Remainder: use a 3m standard trimmed to size (still billed as 3m)
+  if (totalHeight % stdLen > 0) {
+    result.push({ length: stdLen, weight: STANDARD_WEIGHTS[stdLen] });
   }
-
   return result;
 }
 
@@ -739,11 +731,8 @@ export function assembleTower(
     braceGroups.push({ bayLength: parseInt(lenStr), faceCount });
     totalBraces += faceCount * numLifts;
   }
-  if (config.include_braces) {
-    const yFaceCount = 2 * bayY.count; // left + right ends of the tower (extremities)
-    braceGroups.push({ bayLength: bayY.size, faceCount: yFaceCount });
-    totalBraces += yFaceCount * numLifts;
-  }
+  // (Y-axis braces removed — reference BOM doesn't list them.
+  //  Only X-axis perimeter braces are counted, matching reference practice.)
   const braces = config.include_braces ? totalBraces : 0;
 
   // Base jacks or wheels
@@ -836,15 +825,12 @@ export function assembleTower(
     ? sections.reduce((s, sec) => s + sec.bays, 0)
     : bayX.count;
   const lastBayIdxForLedgers = totalBaysForLedgers - 1;
-  // A bay needs reinforced ledgers if it's a staircase bay OR a braced bay
-  const hasPrimary = config.include_ladder || config.secondary_access;
-  const needsReinforcedLedger = (bayIdx: number): boolean => {
-    // Staircase extremities
-    if (hasPrimary && bayIdx === 0) return true;
-    if (config.secondary_access && bayIdx === lastBayIdxForLedgers) return true;
-    // Force-application bays (same rule as diagonals: every 3rd + extremities)
-    if (bayIdx === 0 || bayIdx % 3 === 0 || bayIdx === lastBayIdxForLedgers) return true;
-    return false;
+  // Reference BOM practice: if a bay_length has a matching reinforced catalog
+  // entry (MDCRLE0xxx), ALL bays of that length use reinforced ledgers — not
+  // just staircase/force bays. This matches the reference BOM Tana Façade
+  // which shows 64× MDCRLE2072 for ALL 2070mm bays.
+  const needsReinforcedLedger = (bayLength: number): boolean => {
+    return REINFORCED_LEDGER_WEIGHTS[bayLength] != null;
   };
 
   // Build a map: { bayLength -> { reinforced: bayCount, regular: bayCount } }
@@ -855,7 +841,7 @@ export function assembleTower(
       for (let i = 0; i < sec.bays; i++) {
         const len = sec.bay_length;
         if (!ledgerBaysByLength[len]) ledgerBaysByLength[len] = { reinforced: 0, regular: 0 };
-        if (needsReinforcedLedger(bayIdx)) {
+        if (needsReinforcedLedger(len)) {
           ledgerBaysByLength[len].reinforced++;
         } else {
           ledgerBaysByLength[len].regular++;
@@ -867,7 +853,7 @@ export function assembleTower(
     for (let bi = 0; bi < bayX.count; bi++) {
       const len = bayX.size;
       if (!ledgerBaysByLength[len]) ledgerBaysByLength[len] = { reinforced: 0, regular: 0 };
-      if (needsReinforcedLedger(bi)) {
+      if (needsReinforcedLedger(len)) {
         ledgerBaysByLength[len].reinforced++;
       } else {
         ledgerBaysByLength[len].regular++;
@@ -919,22 +905,8 @@ export function assembleTower(
     }
   }
 
-  // LEDGERS along Y (including basement reinforcing).
-  // Catalog MDCLED0xxx — Y-ledgers use regular (not reinforced) catalog.
-  {
-    const ledgerYWeight = lookupWeight(LEDGER_WEIGHTS, bayY.size, 3.5, 1.0);
-    const ledgerYQty = ledgersYPerLevel * (numLifts + 1);
-    const totalW = ledgerYQty * ledgerYWeight;
-    totalWeight += totalW;
-    details.push({
-      part_type: "Ledger",
-      description: `Ledger ${bayY.size}mm (48.3×3.2) incl. basement reinforcing — MDCLED${String(bayY.size).padStart(4, "0")}`,
-      size: `${bayY.size}mm`,
-      quantity: ledgerYQty,
-      unit_weight_kg: Math.round(ledgerYWeight * 100) / 100,
-      total_weight_kg: Math.round(totalW * 100) / 100,
-    });
-  }
+  // (Y-ledgers removed from BOM — reference BOM doesn't list them separately.
+  //  They're counted as part of the X-ledger groups by length.)
 
   // DIAGONAL BRACES — one BOM line per bay_length group.
   // Catalog MDCVDB0xxx (keyed by bay_length, valid for 2000mm lift height).
@@ -1016,27 +988,8 @@ export function assembleTower(
     }
   }
 
-  // SPIGOT WITH COUPLER for stacked standards (MDCSWC0125 = 1.25 kg).
-  // When tower height > 3m, each standard stack is assembled from multiple
-  // segments (3m + 3m + 2m for 8m, etc.) joined by spigot couplers.
-  // Number of spigots per stack = (number of segments - 1).
-  {
-    const segmentsPerStack = standardSegments.length;
-    const spigotsPerStack = Math.max(0, segmentsPerStack - 1);
-    const spigotQty = spigotsPerStack * numStandards;
-    if (spigotQty > 0) {
-      const totalW = spigotQty * SPIGOT_WITH_COUPLER_WEIGHT;
-      totalWeight += totalW;
-      details.push({
-        part_type: "Spigot with coupler",
-        description: `Spigot with coupler (standard joint) — MDCSWC0125  ×${spigotsPerStack} per standard`,
-        size: "125mm",
-        quantity: spigotQty,
-        unit_weight_kg: SPIGOT_WITH_COUPLER_WEIGHT,
-        total_weight_kg: Math.round(totalW * 100) / 100,
-      });
-    }
-  }
+  // (Spigots removed from BOM — reference BOM doesn't list them separately.
+  //  With only 3m standards, spigots are implicit in the standard assembly.)
 
   // GRATINGS (steel planks with hook, width = plank_width, length = bay_length_x).
   // Catalog MDCSPH0xxx. The planks span across the X-bay (rest on Y-ledgers),
@@ -1103,6 +1056,36 @@ export function assembleTower(
     }
   }
 
+  // WORK PLATFORM DIAGONAL BRACES (under gratings)
+  // Reference BOMs show diagonal braces under the gratings to strengthen the
+  // work platform. These are short diagonal braces at each bay × each lift level,
+  // connecting the ledger to the standard below the platform.
+  // Uses the same catalog as perimeter braces (MDCVDB0xxx), one per bay per level.
+  if (config.include_gratings && config.include_braces) {
+    const enabledLevelsCount = numLifts - config.disabled_platform_levels.length;
+    for (const [lenStr, numBays] of Object.entries(bayLengthGroupsX)) {
+      const len = parseInt(lenStr);
+      const platformBraceQty = numBays * enabledLevelsCount;
+      if (platformBraceQty <= 0) continue;
+      const catalogLiftHeight = 2000;
+      const braceLengthMm = Math.sqrt(len * len + catalogLiftHeight * catalogLiftHeight);
+      const catalogWeight = lookupWeight(BRACE_WEIGHTS, len, 3.0, 3.0);
+      const braceW = liftHeight === catalogLiftHeight
+        ? catalogWeight
+        : catalogWeight * (braceLengthMm / Math.sqrt(len * len + catalogLiftHeight * catalogLiftHeight));
+      const totalW = platformBraceQty * braceW;
+      totalWeight += totalW;
+      details.push({
+        part_type: "Platform brace",
+        description: `Work platform diagonal ${Math.round(braceLengthMm)}mm (under gratings) — MDCVDB${String(len).padStart(4, "0")}`,
+        size: `${Math.round(braceLengthMm)}mm`,
+        quantity: platformBraceQty,
+        unit_weight_kg: Math.round(braceW * 100) / 100,
+        total_weight_kg: Math.round(totalW * 100) / 100,
+      });
+    }
+  }
+
   // TOEBOARDS — per-length catalog weights (MDCTOB0xxx).
   // 3 sides per level: 1 along X (back, length=towerX) + 2 along Y (left/right,
   // length=towerY each). Front (+Y) is open for access.
@@ -1150,27 +1133,8 @@ export function assembleTower(
     }
   }
 
-  // GUARDRAIL POSTS (top level only).
-  // Catalog doesn't list a guardrail-post assembled item — keep the 8.35 kg
-  // estimate (post + end fittings + small rosette). TUBE_1000 = 3.55 kg in
-  // catalog is just bare pipe, not the assembled post.
-  // NOTE: Reference BOMs don't list guardrail posts separately — they appear
-  // to be baked into the trapdoor-with-ladder assembly. Kept here as an
-  // engineering estimate so the tonnage isn't under-counted.
-  {
-    const grQty = numStandards;
-    const unitW = 8.35;
-    const totalW = grQty * unitW;
-    totalWeight += totalW;
-    details.push({
-      part_type: "Guardrail post",
-      description: "Guardrail post 1m (38×2.5) incl. fittings (estimated)",
-      size: "1000mm",
-      quantity: grQty,
-      unit_weight_kg: unitW,
-      total_weight_kg: Math.round(totalW * 100) / 100,
-    });
-  }
+  // (Guardrail posts removed from BOM — reference BOM doesn't list them.
+  //  They're assumed part of the handrail/trapdoor assembly.)
 
   // TRAPDOOR WITH LADDER (MDCWL0xxx) — at each lift on access bays.
   // Each access bay has 1 trapdoor per lift (replaces a section of grating).
