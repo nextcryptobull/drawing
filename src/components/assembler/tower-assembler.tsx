@@ -82,19 +82,26 @@ export function TowerAssembler() {
       return;
     }
     // Set the dimension input from the parsed height + width
+    // Use a simple "1xWxH" format — the actual bays come from sections override
     const h = (parsed.height / 1000).toString();
     const w = (parsed.width / 1000).toString();
-    const totalLen = parsed.sections.reduce((s, sec) => s + sec.bays * sec.bay_length, 0);
-    const l = (totalLen / 1000).toString();
-    setInput(`${l}x${w}x${h}m`);
-    setOverrides(parsed.overrides);
+    setInput(`1x${w}x${h}m`);
+    // Merge sections into overrides (sections is a separate field in the parsed result)
+    setOverrides({
+      ...parsed.overrides,
+      sections: parsed.sections,
+      staircase_tower: parsed.overrides.staircase_tower ?? false,
+      staircase_type: parsed.overrides.staircase_type ?? "ladder",
+    });
     if (parsed.parseWarnings.length > 0) {
       toast.success("Request parsed with warnings", {
         description: parsed.parseWarnings.join("; "),
       });
     } else {
+      const totalBays = parsed.sections.reduce((s, sec) => s + sec.bays, 0);
+      const totalLen = parsed.sections.reduce((s, sec) => s + sec.bays * sec.bay_length, 0);
       toast.success("Request parsed", {
-        description: `${parsed.sections.length} sections, ${parsed.sections.reduce((s, sec) => s + sec.bays, 0)} bays total`,
+        description: `${parsed.sections.length} sections, ${totalBays} bays, ${(totalLen / 1000).toFixed(2)}m total`,
       });
     }
   }

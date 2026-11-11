@@ -1526,7 +1526,7 @@ export function parseScaffoldRequest(text: string): ParsedScaffoldRequest | null
 
     // Detect keywords
     const isAccess = /acc\u00e8s|access/.test(part);
-    const isStaircase = /staircase|escalier/.test(part);
+    const isStaircase = /staircase|straircase|escalier|stairs/.test(part);
     const isReinforced = /renforc|reinforc/.test(part);
     const isDoor = /porte|door/.test(part);
 
