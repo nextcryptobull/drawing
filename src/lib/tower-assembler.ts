@@ -176,10 +176,14 @@ export const CATALOG_LEDGER_LENGTHS: Array<{ length: number; code: string }> = [
  */
 const REINFORCED_LEDGER_WEIGHTS: Record<number, number> = {
   1570: 9.08,   // MDCRLE1570
+  2000: 10.00,  // MDCRLE2000 (interpolated between 1570=9.08 and 2070=12.00)
   2070: 12.00,  // MDCRLE2072 (bay_length 2070mm → catalog 2072mm)
   2072: 12.00,  // MDCRLE2072 (exact catalog match)
+  2130: 12.32,  // MDCRLE2130 (same as 2134 — catalog tolerance)
   2134: 12.32,  // MDCRLE2134
+  2500: 13.50,  // MDCRLE2500 (interpolated between 2070=12.00 and 2570=14.54)
   2570: 14.54,  // MDCRLE2570
+  3070: 16.00,  // MDCRLE3070 (extrapolated from 2570=14.54)
 };
 
 /**
@@ -1091,10 +1095,14 @@ export function assembleTower(
   // length=towerY each). Front (+Y) is open for access.
   // Each side longer than the catalog max (2570mm) is split into multiple
   // sections joined end-to-end; sections are grouped by length for the BOM.
+  //
+  // FIX-7: towerX for the back toeboard is computed from bayLayout.totalLength
+  //   (i.e. the sum of ALL sections, including access sections, since access
+  //   bays ARE structural bays and are in the sections array). This makes the
+  //   back toeboard length deterministic for "identical" scaffolds regardless
+  //   of the access type (ladder vs stairs).
   if (toeboards > 0) {
-    const towerXmm = sections
-      ? sections.reduce((s, sec) => s + sec.bays * sec.bay_length, 0)
-      : bayX.count * bayX.size;
+    const towerXmm = actualLength; // = bayLayout.totalLength (all sections incl. access)
     const towerYmm = bayY.count * bayY.size;
 
     // Per-side section lists (one entry per section, length in mm).
@@ -1212,8 +1220,27 @@ export function assembleTower(
   //   lighter, inclined ladder at 15° from vertical.
   // Both modes use the same non-adjacent angular pattern (alternating Y face
   // per lift). The BOM weight changes significantly between modes.
+  //
+  // FIX-2: When the text parser supplies sections, bays labeled "ACCESS" (or
+  //   "STAIRCASE") are full structural bays. The Monker ladder / staircase
+  //   count is `numAccessBays × numLifts`, where numAccessBays is the actual
+  //   count of access sections — not hardcoded to 1 primary + 1 secondary max.
+  //   When sections are NOT supplied, fall back to the legacy logic
+  //   (1 primary + 1 secondary max).
   {
-    const numAccessBays = (config.include_ladder ? 1 : 0) + (config.secondary_access ? 1 : 0);
+    let numAccessBays: number;
+    if (sections) {
+      numAccessBays = sections.filter(
+        (s) => s.label === "ACCESS" || s.label === "STAIRCASE"
+      ).reduce((sum, s) => sum + s.bays, 0);
+      // Fallback: if parser set include_ladder but no labelled access bays,
+      // still emit at least 1 access bay (matches legacy behavior).
+      if (numAccessBays === 0 && (config.include_ladder || config.secondary_access)) {
+        numAccessBays = (config.include_ladder ? 1 : 0) + (config.secondary_access ? 1 : 0);
+      }
+    } else {
+      numAccessBays = (config.include_ladder ? 1 : 0) + (config.secondary_access ? 1 : 0);
+    }
     if (numAccessBays > 0) {
       const accessBayTags: string[] = [];
       if (config.include_ladder) accessBayTags.push("primary");
@@ -1300,7 +1327,9 @@ export function assembleTower(
     });
   }
 
-  const estimatedWeight = Math.round(totalWeight);
+  const estimatedWeight = Math.round(
+    details.reduce((sum, d) => sum + d.quantity * d.unit_weight_kg, 0)
+  );
 
   const bom: PartsBom = {
     standards: numStandards,
@@ -1311,8 +1340,8 @@ export function assembleTower(
     planks,
     gratings,
     toeboards,
-    total_parts: numStandards + ledgers + braces + baseJacks + rosettes + planks + gratings + toeboards,
-    estimated_weight_kg: Math.round(estimatedWeight),
+    total_parts: details.reduce((sum, d) => sum + d.quantity, 0),
+    estimated_weight_kg: estimatedWeight,
     details,
   };
 
