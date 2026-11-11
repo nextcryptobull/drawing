@@ -27,6 +27,7 @@ import {
   formatDimensions,
   TOWER_PRESETS,
   CATALOG_LEDGER_LENGTHS,
+  parseScaffoldRequest,
   type BayConfig,
 } from "@/lib/tower-assembler";
 import { generateBomPdf } from "@/lib/generate-bom-pdf";
@@ -69,6 +70,34 @@ export function TowerAssembler() {
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [overrides, setOverrides] = useState<Partial<BayConfig>>({});
   const [removedParts, setRemovedParts] = useState<Set<string>>(new Set());
+  const [requestText, setRequestText] = useState("");
+
+  /** Parse the natural-language scaffold request and apply it */
+  function handleParseRequest() {
+    const parsed = parseScaffoldRequest(requestText);
+    if (!parsed) {
+      toast.error("Could not parse request", {
+        description: "Format: '17 baies de 2.5x2x8m, 2 accès 2.5x2x8m, ...'",
+      });
+      return;
+    }
+    // Set the dimension input from the parsed height + width
+    const h = (parsed.height / 1000).toString();
+    const w = (parsed.width / 1000).toString();
+    const totalLen = parsed.sections.reduce((s, sec) => s + sec.bays * sec.bay_length, 0);
+    const l = (totalLen / 1000).toString();
+    setInput(`${l}x${w}x${h}m`);
+    setOverrides(parsed.overrides);
+    if (parsed.parseWarnings.length > 0) {
+      toast.success("Request parsed with warnings", {
+        description: parsed.parseWarnings.join("; "),
+      });
+    } else {
+      toast.success("Request parsed", {
+        description: `${parsed.sections.length} sections, ${parsed.sections.reduce((s, sec) => s + sec.bays, 0)} bays total`,
+      });
+    }
+  }
 
   // Parse and assemble as user types — applies overrides on top of parsed dims
   const result = useMemo(() => {
@@ -239,6 +268,39 @@ export function TowerAssembler() {
                     <p className="text-xs text-muted-foreground">
                       Format: <code className="rounded bg-muted px-1">LxWxH</code> + unit
                       (m, mm, cm, ft). Example: <code className="rounded bg-muted px-1">2.5x2x6m</code>
+                    </p>
+                  </div>
+
+                  {/* Multi-section text request */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">
+                      Multi-section request (text)
+                    </Label>
+                    <div className="flex gap-2">
+                      <Input
+                        value={requestText}
+                        onChange={(e) => setRequestText(e.target.value)}
+                        placeholder="17 baies de 2.5x2x8m, 2 accès 2.5x2x8m, 1 accès staircase 2.13x2x8m"
+                        className="font-mono text-xs"
+                        autoComplete="off"
+                      />
+                      <Button
+                        size="sm"
+                        variant="default"
+                        onClick={handleParseRequest}
+                        disabled={!requestText.trim()}
+                        className="shrink-0"
+                      >
+                        <Zap className="mr-1 size-3" />
+                        Parse
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Keywords: <code className="rounded bg-muted px-1">baies</code> (bays),
+                      <code className="rounded bg-muted px-1">accès</code> (access),
+                      <code className="rounded bg-muted px-1">staircase</code>,
+                      <code className="rounded bg-muted px-1">renforcée</code>,
+                      <code className="rounded bg-muted px-1">porte</code> (door)
                     </p>
                   </div>
 

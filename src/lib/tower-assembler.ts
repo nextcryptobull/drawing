@@ -1453,3 +1453,123 @@ export const TOWER_PRESETS: Array<{
     ],
   },
 ];
+
+/**
+ * Parse a natural-language scaffold request into sections + overrides.
+ *
+ * Supports French and English keywords:
+ *   - "baies" / "bays" → regular bays
+ *   - "accès" / "access" → access bays (with ladder)
+ *   - "staircase" / "escalier" → staircase tower section
+ *   - "renforcée" / "reinforced" → reinforced section
+ *   - "porte" / "door" → door opening
+ *
+ * Format: comma-separated sections, each like:
+ *   "17 baies de 2.5x2x8m"           → 17 bays × 2500mm, height 8m
+ *   "2 accès 2.5x2x8m"               → 2 access bays × 2500mm
+ *   "1 accès staircase 2.13x2x8m"    → 1 staircase access bay × 2130mm
+ *   "1 baie renforcée 2.5x2x8m"     → 1 reinforced bay × 2500mm
+ *   "porte 2x2m"                     → door opening 2m wide × 2m high
+ *
+ * Returns: { sections, height, width, overrides } or null if parse fails.
+ */
+export interface ParsedScaffoldRequest {
+  sections: Array<{ bays: number; bay_length: number }>;
+  height: number;  // mm
+  width: number;   // mm
+  overrides: Partial<BayConfig>;
+  parseWarnings: string[];
+}
+
+export function parseScaffoldRequest(text: string): ParsedScaffoldRequest | null {
+  const cleaned = text.trim().toLowerCase();
+  if (!cleaned) return null;
+
+  const parts = cleaned.split(/,/).map((s) => s.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+
+  const sections: Array<{ bays: number; bay_length: number }> = [];
+  const overrides: Partial<BayConfig> = {};
+  const parseWarnings: string[] = [];
+  let height = 0;
+  let width = 0;
+  let hasStaircase = false;
+  let hasAccess = false;
+
+  for (const part of parts) {
+    // Extract number of bays (first number)
+    const bayCountMatch = part.match(/^(\d+)\s+/);
+    if (!bayCountMatch) {
+      parseWarnings.push(`Could not parse bay count in: "${part}"`);
+      continue;
+    }
+    const bayCount = parseInt(bayCountMatch[1]);
+
+    // Extract dimensions (LxWxH format)
+    const dimsMatch = part.match(/(\d+\.?\d*)\s*[x\u00d7*]\s*(\d+\.?\d*)\s*[x\u00d7*]\s*(\d+\.?\d*)\s*(m|mm|cm)?/);
+    if (!dimsMatch) {
+      parseWarnings.push(`Could not parse dimensions in: "${part}"`);
+      continue;
+    }
+
+    let unitMult = 1000; // default: meters → mm
+    if (dimsMatch[4] === "mm") unitMult = 1;
+    else if (dimsMatch[4] === "cm") unitMult = 10;
+
+    const bayLength = Math.round(parseFloat(dimsMatch[1]) * unitMult);
+    const bayWidth = Math.round(parseFloat(dimsMatch[2]) * unitMult);
+    const bayHeight = Math.round(parseFloat(dimsMatch[3]) * unitMult);
+
+    // Track height and width (use first non-zero)
+    if (height === 0) height = bayHeight;
+    if (width === 0) width = bayWidth;
+
+    // Detect keywords
+    const isAccess = /acc\u00e8s|access/.test(part);
+    const isStaircase = /staircase|escalier/.test(part);
+    const isReinforced = /renforc|reinforc/.test(part);
+    const isDoor = /porte|door/.test(part);
+
+    if (isDoor) {
+      // Door opening: "porte 2x2m" → width=2000, height=2000
+      overrides.door_opening = {
+        bay_index: sections.reduce((s, sec) => s + sec.bays, 0),
+        width: bayLength,
+        height: bayWidth,
+      };
+      continue; // door is not a bay section
+    }
+
+    if (isStaircase) {
+      hasStaircase = true;
+      overrides.staircase_type = "stairs";
+      overrides.staircase_tower = true;
+    }
+
+    if (isAccess) {
+      hasAccess = true;
+      overrides.include_ladder = true;
+    }
+
+    // Add as a section
+    sections.push({ bays: bayCount, bay_length: bayLength });
+
+    // Mark reinforced sections
+    if (isReinforced) {
+      parseWarnings.push(`Section "${part}" marked as reinforced — using reinforced ledgers at extremity bays`);
+    }
+  }
+
+  if (sections.length === 0) {
+    parseWarnings.push("No valid sections found");
+    return null;
+  }
+
+  // Set defaults
+  if (hasAccess && !hasStaircase) {
+    overrides.include_ladder = true;
+    overrides.staircase_type = "ladder";
+  }
+
+  return { sections, height, width, overrides, parseWarnings };
+}
