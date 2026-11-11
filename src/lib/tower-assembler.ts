@@ -1205,60 +1205,78 @@ export function assembleTower(
     }
   }
 
-  // REMOVABLE STAIRCASE SECTIONS (non-adjacent angular ladders).
-  // Per reference BOMs: each access bay gets one inclined staircase per lift
-  // level (MDCRSC2134 = 60.50 kg, 2134mm long), plus a guard rail (MDCGRFS2134
-  // = 11.70 kg) and 5 steps (MDCSFS0860 = 4.05 kg each).
-  //
-  // The staircases alternate between +Y and -Y faces per lift (non-adjacent
-  // pattern), creating a zigzag. At each platform, you walk across to the
-  // opposite face to reach the next staircase.
-  //
-  // Reference verification (BOM façade Tana 1, 50×2×8m):
-  //   Primary: 4 staircases (4 lifts × 1 access bay)
-  //   Secondary: 4 staircases (4 lifts × 1 escape bay)
-  //   Total: 8 staircases, 8 guard rails, 40 steps ✓
+  // ACCESS STAIRCASE / LADDER SECTIONS.
+  // When staircase_type = 'stairs': use removable staircase (MDCRSC2134 +
+  //   MDCGRFS2134 + MDCSFS0860) — heavy, proper staircase with flat treads.
+  // When staircase_type = 'ladder': use Monker ladder (MDCMON2000/3000) —
+  //   lighter, inclined ladder at 15° from vertical.
+  // Both modes use the same non-adjacent angular pattern (alternating Y face
+  // per lift). The BOM weight changes significantly between modes.
   {
     const numAccessBays = (config.include_ladder ? 1 : 0) + (config.secondary_access ? 1 : 0);
     if (numAccessBays > 0) {
-      const staircaseQtyPerBay = numLifts;
-      const totalStaircaseQty = numAccessBays * staircaseQtyPerBay;
-      const totalGuardRailQty = totalStaircaseQty; // 1 guard rail per staircase
-      const totalStepQty = totalStaircaseQty * STEPS_PER_STAIRCASE;
-
-      const staircaseTotalW = totalStaircaseQty * REMOVABLE_STAIRCASE_WEIGHT;
-      const guardRailTotalW = totalGuardRailQty * STAIRCASE_GUARD_RAIL_WEIGHT;
-      const stepTotalW = totalStepQty * STAIRCASE_STEP_WEIGHT;
-      totalWeight += staircaseTotalW + guardRailTotalW + stepTotalW;
-
       const accessBayTags: string[] = [];
       if (config.include_ladder) accessBayTags.push("primary");
       if (config.secondary_access) accessBayTags.push("secondary");
 
-      details.push({
-        part_type: "Removable staircase",
-        description: `Removable staircase 2134mm — MDCRSC2134  (${numAccessBays} access bay(s): ${accessBayTags.join("+")}, ${numLifts} lifts each, non-adjacent angular)`,
-        size: "2134mm",
-        quantity: totalStaircaseQty,
-        unit_weight_kg: REMOVABLE_STAIRCASE_WEIGHT,
-        total_weight_kg: Math.round(staircaseTotalW * 100) / 100,
-      });
-      details.push({
-        part_type: "Staircase guard rail",
-        description: `Guard rail for staircase — MDCGRFS2134  (1 per staircase)`,
-        size: "2134mm",
-        quantity: totalGuardRailQty,
-        unit_weight_kg: STAIRCASE_GUARD_RAIL_WEIGHT,
-        total_weight_kg: Math.round(guardRailTotalW * 100) / 100,
-      });
-      details.push({
-        part_type: "Staircase step",
-        description: `Step for staircase — MDCSFS0860  (${STEPS_PER_STAIRCASE} per staircase)`,
-        size: "860mm",
-        quantity: totalStepQty,
-        unit_weight_kg: STAIRCASE_STEP_WEIGHT,
-        total_weight_kg: Math.round(stepTotalW * 100) / 100,
-      });
+      if (config.staircase_type === "ladder") {
+        // LADDER MODE: Monker ladder sections (MDCMON2000/3000)
+        // Each access bay gets one ladder per lift, assembled from 3m + 2m
+        // Monker sections + spigot couplers (MDCSWC0125).
+        const ladderSections = computeLadderAssembly(towerHeightTotal);
+        const totalStaircaseQty = numAccessBays * numLifts;
+        const sectionWeight = ladderSections.sectionWeight;
+        const spigotCount = ladderSections.spigotCount;
+        const totalSpigotQty = totalStaircaseQty * spigotCount;
+        const ladderTotalW = totalStaircaseQty * sectionWeight;
+        const spigotTotalW = totalSpigotQty * SPIGOT_WITH_COUPLER_WEIGHT;
+        totalWeight += ladderTotalW + spigotTotalW;
+
+        details.push({
+          part_type: "Ladder",
+          description: `Monker ladder (${ladderSections.sectionCount} sections + ${spigotCount} spigots per lift) — ${accessBayTags.join("+")}, ${numLifts} lifts`,
+          size: `${towerHeightTotal}mm`,
+          quantity: totalStaircaseQty,
+          unit_weight_kg: Math.round((sectionWeight + spigotCount * SPIGOT_WITH_COUPLER_WEIGHT) * 100) / 100,
+          total_weight_kg: Math.round((ladderTotalW + spigotTotalW) * 100) / 100,
+        });
+      } else {
+        // STAIRS MODE: removable staircase (MDCRSC2134 + MDCGRFS2134 + MDCSFS0860)
+        const staircaseQtyPerBay = numLifts;
+        const totalStaircaseQty = numAccessBays * staircaseQtyPerBay;
+        const totalGuardRailQty = totalStaircaseQty;
+        const totalStepQty = totalStaircaseQty * STEPS_PER_STAIRCASE;
+
+        const staircaseTotalW = totalStaircaseQty * REMOVABLE_STAIRCASE_WEIGHT;
+        const guardRailTotalW = totalGuardRailQty * STAIRCASE_GUARD_RAIL_WEIGHT;
+        const stepTotalW = totalStepQty * STAIRCASE_STEP_WEIGHT;
+        totalWeight += staircaseTotalW + guardRailTotalW + stepTotalW;
+
+        details.push({
+          part_type: "Removable staircase",
+          description: `Removable staircase 2134mm — MDCRSC2134  (${numAccessBays} access bay(s): ${accessBayTags.join("+")}, ${numLifts} lifts each, non-adjacent angular)`,
+          size: "2134mm",
+          quantity: totalStaircaseQty,
+          unit_weight_kg: REMOVABLE_STAIRCASE_WEIGHT,
+          total_weight_kg: Math.round(staircaseTotalW * 100) / 100,
+        });
+        details.push({
+          part_type: "Staircase guard rail",
+          description: `Guard rail for staircase — MDCGRFS2134  (1 per staircase)`,
+          size: "2134mm",
+          quantity: totalGuardRailQty,
+          unit_weight_kg: STAIRCASE_GUARD_RAIL_WEIGHT,
+          total_weight_kg: Math.round(guardRailTotalW * 100) / 100,
+        });
+        details.push({
+          part_type: "Staircase step",
+          description: `Step for staircase — MDCSFS0860  (${STEPS_PER_STAIRCASE} per staircase)`,
+          size: "860mm",
+          quantity: totalStepQty,
+          unit_weight_kg: STAIRCASE_STEP_WEIGHT,
+          total_weight_kg: Math.round(stepTotalW * 100) / 100,
+        });
+      }
     }
   }
 
