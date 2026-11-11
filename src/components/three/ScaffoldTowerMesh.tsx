@@ -132,9 +132,9 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         metalness: 0.1,
       }),
       grating: new THREE.MeshStandardMaterial({
-        color: "#8b6f47",
-        roughness: 0.85,
-        metalness: 0.1,
+        color: "#5a6c7a",
+        roughness: 0.5,
+        metalness: 0.7,
       }),
       toeboard: new THREE.MeshStandardMaterial({
         color: "#d4a017",
@@ -722,7 +722,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
           }}
         >
           <boxGeometry args={[trapLenX, trapWidthY, trapThk]} />
-          {/* Brown wood-plank color — same as gratings, looks solid (not a hole) */}
+          {/* Brown wood-plank color — opaque, looks solid (not a hole) */}
           <meshStandardMaterial color="#8b6f47" roughness={0.85} metalness={0.1} />
         </mesh>
         {/* Hinge bar — on INNER Y edge (towards scaffold frame) */}
@@ -1520,7 +1520,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
             {/* Visual door panel (semi-transparent, shows the opening) */}
             <mesh position={[bayCenterX, -towerY / 2, doorHeight / 2]}>
               <boxGeometry args={[doorWidth, 10, doorHeight]} />
-              <meshStandardMaterial color="#8b6f47" transparent opacity={0.4} roughness={0.85} metalness={0.1} />
+              <meshStandardMaterial color="#8b6f47" roughness={0.85} metalness={0.1} />
             </mesh>
           </group>
         );
