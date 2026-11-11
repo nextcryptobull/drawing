@@ -72,7 +72,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     door_opening?: { bay_index: number; width: number; height: number };
     plank_width?: 320 | 230;
     secondary_access?: boolean;
-    sections?: Array<{ bays: number; bay_length: number }>;
+    sections?: Array<{ bays: number; bay_length: number; label?: string }>;
   };
 
   // When secondary access is enabled (auto at ≥20m height/length), the primary
