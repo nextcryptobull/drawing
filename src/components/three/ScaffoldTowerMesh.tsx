@@ -712,18 +712,18 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     const label = type === "primary" ? "Trap door" : "Trap door (escape)";
     return (
       <group key={`trapdoor-${type}-L${levelIdx}`}>
+        {/* Main trapdoor panel — brown, opaque, uses shared plank material */}
         <mesh
           position={[trapX, trapY, trapZ]}
           castShadow
           receiveShadow
+          material={materials.plank}
           onClick={(e) => {
             e.stopPropagation();
             if (onPartClick) onPartClick(`${label} L${levelIdx + 1}`, [trapX, trapY, trapZ], `trapdoor-${type}-L${levelIdx}`);
           }}
         >
           <boxGeometry args={[trapLenX, trapWidthY, trapThk]} />
-          {/* Brown wood-plank color — opaque, looks solid (not a hole) */}
-          <meshStandardMaterial color="#8b6f47" roughness={0.85} metalness={0.1} />
         </mesh>
         {/* Hinge bar — on INNER Y edge (towards scaffold frame) */}
         <mesh position={[trapX, hingeY, trapZ]} castShadow>
