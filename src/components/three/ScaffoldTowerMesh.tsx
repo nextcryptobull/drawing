@@ -1287,15 +1287,14 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       })}
 
       {/* ---- Handrails + middle rails on staircase bays ---- */}
-      {/* SAFETY: where there are stairs, both Y faces (+Y and -Y) of the
-          staircase bay need handrails (top rail at 1000mm above platform)
-          and middle rails (at 500mm above platform) for every lift level.
-          The staircase alternates Y face per lift, so both faces need
-          continuous rails for the full tower height.
-          Rails run along X (the bay length), at the bay's Y boundary. */}
+      {/* SAFETY: handrails only on the STAIRCASE SIDE (the Y face where the
+          staircase is for that lift), NOT both faces. The staircase alternates
+          Y face per lift, so each lift's handrail is on the staircase's side
+          for that lift. The opposite side has the normal guardrail (handled
+          by the top-level guardrail code). */}
       {hasPrimaryStaircase && (() => {
         const railR = tubeR * 0.7;
-        const railLenX = bayLayout.bayLengths[0]; // primary staircase bay length
+        const railLenX = bayLayout.bayLengths[0];
         const bayStartX = bayLayout.standardXs[0];
         const railCenterX = bayStartX + railLenX / 2;
         const rails: React.ReactNode[] = [];
@@ -1303,32 +1302,34 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
           const platformZ = (liftIdx + 1) * lift_height;
           const middleRailZ = platformZ + 500;
           const topRailZ = platformZ + 1000;
-          for (const yFace of [towerY / 2, -towerY / 2]) {
-            // Middle rail
-            rails.push(
-              <mesh
-                key={`handrail-primary-L${liftIdx}-mid-${yFace > 0 ? "pY" : "mY"}`}
-                position={[railCenterX, yFace, middleRailZ]}
-                rotation={[0, 0, Math.PI / 2]}
-                material={materials.standard}
-                castShadow
-              >
-                <cylinderGeometry args={[railR, railR, railLenX, 16]} />
-              </mesh>
-            );
-            // Top handrail
-            rails.push(
-              <mesh
-                key={`handrail-primary-L${liftIdx}-top-${yFace > 0 ? "pY" : "mY"}`}
-                position={[railCenterX, yFace, topRailZ]}
-                rotation={[0, 0, Math.PI / 2]}
-                material={materials.standard}
-                castShadow
-              >
-                <cylinderGeometry args={[railR, railR, railLenX, 16]} />
-              </mesh>
-            );
-          }
+          // Only render handrail on the staircase's Y face for this lift
+          const opening = staircaseOpenings.computeForBayAndLift(0, liftIdx, true);
+          if (!opening) continue;
+          const yFace = opening.yFace;
+          // Middle rail
+          rails.push(
+            <mesh
+              key={`handrail-primary-L${liftIdx}-mid`}
+              position={[railCenterX, yFace, middleRailZ]}
+              rotation={[0, 0, Math.PI / 2]}
+              material={materials.standard}
+              castShadow
+            >
+              <cylinderGeometry args={[railR, railR, railLenX, 16]} />
+            </mesh>
+          );
+          // Top handrail
+          rails.push(
+            <mesh
+              key={`handrail-primary-L${liftIdx}-top`}
+              position={[railCenterX, yFace, topRailZ]}
+              rotation={[0, 0, Math.PI / 2]}
+              material={materials.standard}
+              castShadow
+            >
+              <cylinderGeometry args={[railR, railR, railLenX, 16]} />
+            </mesh>
+          );
         }
         return <group>{rails}</group>;
       })()}
@@ -1343,30 +1344,32 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
           const platformZ = (liftIdx + 1) * lift_height;
           const middleRailZ = platformZ + 500;
           const topRailZ = platformZ + 1000;
-          for (const yFace of [towerY / 2, -towerY / 2]) {
-            rails.push(
-              <mesh
-                key={`handrail-secondary-L${liftIdx}-mid-${yFace > 0 ? "pY" : "mY"}`}
-                position={[railCenterX, yFace, middleRailZ]}
-                rotation={[0, 0, Math.PI / 2]}
-                material={materials.standard}
-                castShadow
-              >
-                <cylinderGeometry args={[railR, railR, railLenX, 16]} />
-              </mesh>
-            );
-            rails.push(
-              <mesh
-                key={`handrail-secondary-L${liftIdx}-top-${yFace > 0 ? "pY" : "mY"}`}
-                position={[railCenterX, yFace, topRailZ]}
-                rotation={[0, 0, Math.PI / 2]}
-                material={materials.standard}
-                castShadow
-              >
-                <cylinderGeometry args={[railR, railR, railLenX, 16]} />
-              </mesh>
-            );
-          }
+          // Only render handrail on the staircase's Y face for this lift
+          const opening = staircaseOpenings.computeForBayAndLift(lastBayIdx, liftIdx, false);
+          if (!opening) continue;
+          const yFace = opening.yFace;
+          rails.push(
+            <mesh
+              key={`handrail-secondary-L${liftIdx}-mid`}
+              position={[railCenterX, yFace, middleRailZ]}
+              rotation={[0, 0, Math.PI / 2]}
+              material={materials.standard}
+              castShadow
+            >
+              <cylinderGeometry args={[railR, railR, railLenX, 16]} />
+            </mesh>
+          );
+          rails.push(
+            <mesh
+              key={`handrail-secondary-L${liftIdx}-top`}
+              position={[railCenterX, yFace, topRailZ]}
+              rotation={[0, 0, Math.PI / 2]}
+              material={materials.standard}
+              castShadow
+            >
+              <cylinderGeometry args={[railR, railR, railLenX, 16]} />
+            </mesh>
+          );
         }
         return <group>{rails}</group>;
       })()}
