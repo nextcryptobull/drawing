@@ -96,6 +96,11 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         roughness: 0.5,
         metalness: 0.7,
       }),
+      reinforcedLedger: new THREE.MeshStandardMaterial({
+        color: "#cc4422",
+        roughness: 0.4,
+        metalness: 0.6,
+      }),
       brace: new THREE.MeshStandardMaterial({
         color: "#4a8c4a",
         roughness: 0.6,
@@ -219,6 +224,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       z: number;
       len: number;
       axis: "x" | "y";
+      bayIdx: number; // which bay this ledger belongs to (for reinforced check)
     }[] = [];
     for (let k = 0; k < num_lifts; k++) {
       const z = (k + 1) * lift_height;
@@ -227,7 +233,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         for (let j = 0; j <= bays_y; j++) {
           const x = bayLayout.bayCenters[i];
           const y = j * bay_length_y - towerY / 2;
-          items.push({ x, y, z, len: bayLayout.bayLengths[i], axis: "x" });
+          items.push({ x, y, z, len: bayLayout.bayLengths[i], axis: "x", bayIdx: i });
         }
       }
       // Ledgers along Y (per standard X position, length = bay_length_y)
@@ -236,7 +242,9 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
           const x = bayLayout.standardXs[i];
           const y1 = j * bay_length_y - towerY / 2;
           const y2 = (j + 1) * bay_length_y - towerY / 2;
-          items.push({ x, y: (y1 + y2) / 2, z, len: bay_length_y, axis: "y" });
+          // Y-ledgers belong to the bay to their left (bay i-1) or bay i
+          const bayIdx = Math.min(i, bayLayout.bayCenters.length - 1);
+          items.push({ x, y: (y1 + y2) / 2, z, len: bay_length_y, axis: "y", bayIdx });
         }
       }
     }
@@ -971,16 +979,29 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         }
         const rot: [number, number, number] =
           l.axis === "x" ? [0, 0, Math.PI / 2] : [0, 0, 0];
+        // Check if this bay is a reinforced section
+        let isReinforced = false;
+        if (sections) {
+          let prevBays = 0;
+          for (const sec of sections) {
+            if (l.bayIdx >= prevBays && l.bayIdx < prevBays + sec.bays) {
+              isReinforced = sec.label === "REINFORCED";
+              break;
+            }
+            prevBays += sec.bays;
+          }
+        }
         return (
           <mesh
             key={partId}
             rotation={rot}
             position={[l.x, l.y, l.z]}
-            material={materials.ledger}
+            material={isReinforced ? materials.reinforcedLedger : materials.ledger}
             castShadow
             onClick={(e) => {
               e.stopPropagation();
-              if (onPartClick) onPartClick(`Ledger ${l.axis.toUpperCase()} L${Math.ceil(l.z / lift_height)}`, [l.x, l.y, l.z], partId);
+              const ledgerName = isReinforced ? `Reinforced ledger ${l.axis.toUpperCase()} L${Math.ceil(l.z / lift_height)}` : `Ledger ${l.axis.toUpperCase()} L${Math.ceil(l.z / lift_height)}`;
+              if (onPartClick) onPartClick(ledgerName, [l.x, l.y, l.z], partId);
             }}
           >
             <cylinderGeometry args={[ledgerR, ledgerR, l.len, 20]} />
