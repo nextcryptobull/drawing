@@ -575,7 +575,7 @@ export function TowerAssembler() {
                           {/* Divider */}
                           <div className="border-t pt-2" />
 
-                          {/* Base type: jack or wheel */}
+                          {/* Base type: jack / wheel / suspended */}
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-xs text-muted-foreground">Base type</span>
                             <div className="flex gap-1">
@@ -595,8 +595,41 @@ export function TowerAssembler() {
                               >
                                 Wheel
                               </Button>
+                              <Button
+                                variant={result.config.base_type === "suspended" ? "default" : "outline"}
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => updateFromConfig({ base_type: "suspended" })}
+                              >
+                                Suspended
+                              </Button>
                             </div>
                           </div>
+
+                          {/* Suspended beam length: 4m / 6m (only when suspended) */}
+                          {result.config.base_type === "suspended" && (
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs text-muted-foreground">Beam length</span>
+                              <div className="flex gap-1">
+                                <Button
+                                  variant={result.config.suspended_beam_length === 4000 ? "default" : "outline"}
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() => updateFromConfig({ suspended_beam_length: 4000 })}
+                                >
+                                  4 m
+                                </Button>
+                                <Button
+                                  variant={result.config.suspended_beam_length === 6000 ? "default" : "outline"}
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() => updateFromConfig({ suspended_beam_length: 6000 })}
+                                >
+                                  6 m
+                                </Button>
+                              </div>
+                            </div>
+                          )}
 
                           {/* Plank width toggle: 320 (heavy-duty) / 230 (light) */}
                           <div className="flex items-center justify-between gap-2">

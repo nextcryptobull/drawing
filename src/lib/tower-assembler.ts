@@ -27,7 +27,7 @@ export interface BayConfig {
   /** Number of lifts (levels) */
   num_lifts: number;
   /** Base type: adjustable jack or caster wheel */
-  base_type: "jack" | "wheel";
+  base_type: "jack" | "wheel" | "suspended";
   /** Include grating platforms at each level */
   include_gratings: boolean;
   /** Include toeboards at each level */
@@ -52,6 +52,8 @@ export interface BayConfig {
   };
   /** Plank width: 320mm (heavy-duty) or 230mm (light) */
   plank_width: 320 | 230;
+  /** Suspended beam length (when base_type='suspended'): 4000 or 6000mm */
+  suspended_beam_length: 4000 | 6000;
   /** Secondary access ladder (auto at >=20m height or length) */
   secondary_access: boolean;
   /** Optional mixed sections (overrides bays_x/bay_length_x) */
@@ -248,6 +250,18 @@ const TOEBOARD_WEIGHTS: Record<number, number> = {
 const LADDER_WEIGHTS: Record<number, number> = {
   2000: 5.75,   // MDCMON2000
   3000: 7.96,   // MDCMON3000
+};
+
+/**
+ * Ladder beam weights (kg) — from BOM blank.xlsx catalog.
+ * Source rows r66–r69 (MDCLBE0xxx). Used for suspended frame support.
+ * Ladder beams span across the scaffold width and support the frame from above.
+ */
+const LADDER_BEAM_WEIGHTS: Record<number, number> = {
+  2000: 20.80,   // MDCLBE2000
+  3000: 32.40,   // MDCLBE3000
+  4000: 46.00,   // MDCLBE4000
+  6000: 64.80,   // MDCLBE6000
 };
 
 /**
@@ -634,6 +648,7 @@ export function assembleTower(
     staircase_tower: overrides?.staircase_tower ?? false,
     door_opening: overrides?.door_opening,
     plank_width: overrides?.plank_width ?? 320,
+    suspended_beam_length: overrides?.suspended_beam_length ?? 4000,
     secondary_access,
     sections,
   };
@@ -940,55 +955,86 @@ export function assembleTower(
     }
   }
 
-  // BASE ASSEMBLY (sole board + base collar + base jack/wheel per standard).
-  // Reference BOMs include all three per standard base. Default base jack
-  // changed to FIX (MDCFBJ0600) to match both reference BOMs.
-  //   MDCSLB0450  SOLE BOARDS0450    = 1.80 kg  (1 per standard, jack base only)
-  //   MDCBCO0280  BASE_COLLAR        = 1.72 kg  (1 per standard, jack base only)
-  //   MDCFBJ0600  FIX_BASE_JACK      = 3.39 kg  (default for "jack" type)
-  //   MDCBCO0600  SWIVEL_BASE_JACK   = 3.81 kg  (alternative jack — not default)
-  //   MDCWHE0300  WHEEL              = 17.00 kg (heavy-duty total-lock)
+  // BASE ASSEMBLY (sole board + base collar + base jack/wheel/ladder beam per standard).
+  //   Jack: MDCFBJ0600 + MDCSLB0450 + MDCBCO0280
+  //   Wheel: MDCWHE0300 only
+  //   Suspended: MDCLBE4000 or MDCLBE6000 (ladder beams spanning the width)
+  //             + suspension brackets (1 per standard, estimated 2.5 kg)
   {
     const isWheel = config.base_type === "wheel";
-    const unitW = isWheel ? WHEEL_WEIGHT : FIXED_BASE_JACK_WEIGHT;
-    const desc = isWheel
-      ? 'Wheel (heavy-duty total-lock) — MDCWHE0300'
-      : "Fix base jack 38×600mm — MDCFBJ0600";
-    const totalW = baseJacks * unitW;
-    totalWeight += totalW;
-    details.push({
-      part_type: isWheel ? "Caster wheel" : "Base jack",
-      description: desc,
-      size: isWheel ? "Ø200×50mm" : "38×600mm",
-      quantity: baseJacks,
-      unit_weight_kg: unitW,
-      total_weight_kg: Math.round(totalW * 100) / 100,
-    });
+    const isSuspended = config.base_type === "suspended";
 
-    // Sole boards + base collars — only for jack bases (wheels have their
-    // own mounting, no sole board needed).
-    if (!isWheel) {
-      const soleW = baseJacks * SOLE_BOARD_WEIGHT;
-      totalWeight += soleW;
+    if (isSuspended) {
+      // SUSPENDED MODE: ladder beams + suspension brackets
+      // Ladder beams span across the scaffold width (bay_length_y direction),
+      // one per row of standards along X. Each beam supports 2+ standards.
+      // Number of beams = number of standard rows in X = bayX.count + 1
+      const beamRowsX = bayX.count + 1;
+      const beamLength = config.suspended_beam_length;
+      const beamWeight = LADDER_BEAM_WEIGHTS[beamLength] ?? 46.0;
+      const beamQty = beamRowsX;
+      const beamTotalW = beamQty * beamWeight;
+
       details.push({
-        part_type: "Sole board",
-        description: "Sole board 450mm (under base jack) — MDCSLB0450",
-        size: "450mm",
-        quantity: baseJacks,
-        unit_weight_kg: SOLE_BOARD_WEIGHT,
-        total_weight_kg: Math.round(soleW * 100) / 100,
+        part_type: "Ladder beam",
+        description: `Ladder beam ${beamLength}mm (suspended support) — MDCLBE${String(beamLength).padStart(4, "0")}  (${beamRowsX} rows along X)`,
+        size: `${beamLength}mm`,
+        quantity: beamQty,
+        unit_weight_kg: beamWeight,
+        total_weight_kg: Math.round(beamTotalW * 100) / 100,
       });
 
-      const collarW = baseJacks * BASE_COLLAR_WEIGHT;
-      totalWeight += collarW;
+      // Suspension brackets (1 per standard, connects standard to beam above)
+      const bracketWeight = 2.5; // estimated
+      const bracketQty = baseJacks; // same as numStandards
+      const bracketTotalW = bracketQty * bracketWeight;
+
       details.push({
-        part_type: "Base collar",
-        description: "Base collar (connects jack to standard) — MDCBCO0280",
-        size: "280mm",
-        quantity: baseJacks,
-        unit_weight_kg: BASE_COLLAR_WEIGHT,
-        total_weight_kg: Math.round(collarW * 100) / 100,
+        part_type: "Suspension bracket",
+        description: `Suspension bracket (connects standard to ladder beam) — estimated`,
+        size: "standard",
+        quantity: bracketQty,
+        unit_weight_kg: bracketWeight,
+        total_weight_kg: Math.round(bracketTotalW * 100) / 100,
       });
+    } else {
+      // JACK or WHEEL mode (existing logic)
+      const unitW = isWheel ? WHEEL_WEIGHT : FIXED_BASE_JACK_WEIGHT;
+      const desc = isWheel
+        ? 'Wheel (heavy-duty total-lock) — MDCWHE0300'
+        : "Fix base jack 38×600mm — MDCFBJ0600";
+      const totalW = baseJacks * unitW;
+      details.push({
+        part_type: isWheel ? "Caster wheel" : "Base jack",
+        description: desc,
+        size: isWheel ? "Ø200×50mm" : "38×600mm",
+        quantity: baseJacks,
+        unit_weight_kg: unitW,
+        total_weight_kg: Math.round(totalW * 100) / 100,
+      });
+
+      // Sole boards + base collars — only for jack bases
+      if (!isWheel) {
+        const soleW = baseJacks * SOLE_BOARD_WEIGHT;
+        details.push({
+          part_type: "Sole board",
+          description: "Sole board 450mm (under base jack) — MDCSLB0450",
+          size: "450mm",
+          quantity: baseJacks,
+          unit_weight_kg: SOLE_BOARD_WEIGHT,
+          total_weight_kg: Math.round(soleW * 100) / 100,
+        });
+
+        const collarW = baseJacks * BASE_COLLAR_WEIGHT;
+        details.push({
+          part_type: "Base collar",
+          description: "Base collar (connects jack to standard) — MDCBCO0280",
+          size: "280mm",
+          quantity: baseJacks,
+          unit_weight_kg: BASE_COLLAR_WEIGHT,
+          total_weight_kg: Math.round(collarW * 100) / 100,
+        });
+      }
     }
   }
 
@@ -1406,6 +1452,7 @@ export function assemblyToTowerConfig(result: AssemblyResult) {
     staircase_tower: result.config.staircase_tower,
     door_opening: result.config.door_opening,
     plank_width: result.config.plank_width,
+    suspended_beam_length: result.config.suspended_beam_length,
     secondary_access: result.config.secondary_access,
     sections: result.config.sections,
   };

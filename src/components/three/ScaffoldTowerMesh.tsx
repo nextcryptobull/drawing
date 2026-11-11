@@ -49,6 +49,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     plank_thickness,
     // New fields with defaults for backward compat
     base_type = "jack",
+    suspended_beam_length = 4000,
     include_gratings = true,
     include_toeboards = true,
     disabled_platform_levels = [],
@@ -60,7 +61,8 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     secondary_access = false,
     sections,
   } = config as TowerConfig & {
-    base_type?: "jack" | "wheel";
+    base_type?: "jack" | "wheel" | "suspended";
+    suspended_beam_length?: number;
     include_gratings?: boolean;
     include_toeboards?: boolean;
     disabled_platform_levels?: number[];
@@ -866,6 +868,26 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
                 <cylinderGeometry args={[17.5, 17.5, 40, 16]} />
               </mesh>
             </group>
+          ) : base_type === "suspended" ? (
+            /* Suspended frame: ladder beam above the standard + suspension bracket.
+               The ladder beam runs along Y (perpendicular to X), one per row of standards.
+               A short suspension bracket connects the top of the standard to the beam. */
+            <group
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onPartClick) onPartClick("Suspension bracket", [x, y, 0], `suspension-${idx}`);
+              }}
+            >
+              {/* Suspension bracket: short vertical tube from standard top to beam */}
+              <mesh
+                rotation={[Math.PI / 2, 0, 0]}
+                position={[0, 0, towerHeight + 40]}
+                material={materials.spigot}
+                castShadow
+              >
+                <cylinderGeometry args={[20, 20, 80, 16]} />
+              </mesh>
+            </group>
           ) : include_base_jacks ? (
             /* Standard ringlock base jack:
                - Solid: Ø38mm × 600mm, ACME thread (4 TPI)
@@ -910,6 +932,25 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
             </group>
           ) : null}
         </group>
+      ))}
+
+      {/* ---- Ladder beams (suspended frame support) ---- */}
+      {/* When base_type='suspended', ladder beams run along Y above each row
+          of standards. Each beam spans the scaffold width. */}
+      {base_type === "suspended" && bayLayout.standardXs.map((stdX, rowIdx) => (
+        <mesh
+          key={`ladder-beam-${rowIdx}`}
+          position={[stdX, 0, towerHeight + 80]}
+          rotation={[0, 0, 0]}
+          material={materials.spigot}
+          castShadow
+          onClick={(e) => {
+            e.stopPropagation();
+            if (onPartClick) onPartClick(`Ladder beam ${suspended_beam_length}mm (row ${rowIdx})`, [stdX, 0, towerHeight + 80], `ladder-beam-${rowIdx}`);
+          }}
+        >
+          <cylinderGeometry args={[25, 25, suspended_beam_length, 16]} />
+        </mesh>
       ))}
 
       {/* ---- Reinforcing ledgers at basement level (clickable, different color) ---- */}
