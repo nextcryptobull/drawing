@@ -55,6 +55,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     include_ladder = false,
     staircase_type = "ladder",
     staircase_tower = false,
+    door_opening,
     plank_width = 320,
     secondary_access = false,
     sections,
@@ -66,6 +67,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     include_ladder?: boolean;
     staircase_type?: "ladder" | "stairs";
     staircase_tower?: boolean;
+    door_opening?: { bay_index: number; width: number; height: number };
     plank_width?: 320 | 230;
     secondary_access?: boolean;
     sections?: Array<{ bays: number; bay_length: number }>;
@@ -1449,6 +1451,55 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         const prefix = `staircase-tower-L${liftIdx}`;
         return renderFn(bayIdx, liftIdx, color, name, prefix, startOnPlusY);
       })}
+
+      {/* ---- Door opening (walk-through passage in scaffold frame) ---- */}
+      {/* Creates a gap in the scaffold frame for entry/exit.
+          Renders a door frame with:
+          - 2 vertical side posts (thicker tubes on both sides of the opening)
+          - 1 horizontal header beam above the door
+          - The opening is clear (no ledgers/braces at that position) */}
+      {door_opening && (() => {
+        const { bay_index: doorBay, width: doorWidth, height: doorHeight } = door_opening;
+        if (doorBay >= bayLayout.bayCenters.length) return null;
+        const bayCenterX = bayLayout.bayCenters[doorBay];
+        const doorR = tubeR * 1.2; // thicker than regular standards
+        return (
+          <group key="door-opening">
+            {/* Left side post */}
+            <mesh
+              rotation={verticalRotation}
+              position={[bayCenterX - doorWidth / 2, -towerY / 2, doorHeight / 2]}
+              material={materials.standard}
+              castShadow
+            >
+              <cylinderGeometry args={[doorR, doorR, doorHeight, 16]} />
+            </mesh>
+            {/* Right side post */}
+            <mesh
+              rotation={verticalRotation}
+              position={[bayCenterX + doorWidth / 2, -towerY / 2, doorHeight / 2]}
+              material={materials.standard}
+              castShadow
+            >
+              <cylinderGeometry args={[doorR, doorR, doorHeight, 16]} />
+            </mesh>
+            {/* Header beam (horizontal, above the door) */}
+            <mesh
+              position={[bayCenterX, -towerY / 2, doorHeight]}
+              rotation={[0, 0, Math.PI / 2]}
+              material={materials.standard}
+              castShadow
+            >
+              <cylinderGeometry args={[doorR, doorR, doorWidth + doorR * 2, 16]} />
+            </mesh>
+            {/* Visual door panel (semi-transparent, shows the opening) */}
+            <mesh position={[bayCenterX, -towerY / 2, doorHeight / 2]}>
+              <boxGeometry args={[doorWidth, 10, doorHeight]} />
+              <meshStandardMaterial color="#e85d04" transparent opacity={0.3} roughness={0.5} />
+            </mesh>
+          </group>
+        );
+      })()}
 
       {/* ---- Primary staircase (access bay 0 only, when NOT staircase_tower) ---- */}
       {!staircase_tower && hasPrimaryStaircase && Array.from({ length: num_lifts }).map((_, liftIdx) => {

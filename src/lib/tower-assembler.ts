@@ -42,6 +42,14 @@ export interface BayConfig {
   staircase_type: "ladder" | "stairs";
   /** Staircase tower mode: stairs in ALL bays (not just access bay), alternating per lift */
   staircase_tower: boolean;
+  /** Door opening: creates a walk-through passage in the scaffold frame.
+      Position = which bay (0-indexed). Width and height in mm.
+      When set, ledgers + braces are removed at that bay/level to create the passage. */
+  door_opening?: {
+    bay_index: number;  // which bay has the door (0-indexed)
+    width: number;      // door width in mm (e.g., 900)
+    height: number;     // door height in mm (e.g., 2000)
+  };
   /** Plank width: 320mm (heavy-duty) or 230mm (light) */
   plank_width: 320 | 230;
   /** Secondary access ladder (auto at >=20m height or length) */
@@ -628,6 +636,7 @@ export function assembleTower(
     include_ladder: overrides?.include_ladder ?? false,
     staircase_type: overrides?.staircase_type ?? "ladder",
     staircase_tower: overrides?.staircase_tower ?? false,
+    door_opening: overrides?.door_opening,
     plank_width: overrides?.plank_width ?? 320,
     secondary_access,
     sections,
@@ -1346,6 +1355,7 @@ export function assemblyToTowerConfig(result: AssemblyResult) {
     include_ladder: result.config.include_ladder,
     staircase_type: result.config.staircase_type,
     staircase_tower: result.config.staircase_tower,
+    door_opening: result.config.door_opening,
     plank_width: result.config.plank_width,
     secondary_access: result.config.secondary_access,
     sections: result.config.sections,

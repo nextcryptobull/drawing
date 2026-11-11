@@ -624,6 +624,56 @@ export function TowerAssembler() {
                             checked={result.config.secondary_access}
                             onChange={(v) => updateFromConfig({ secondary_access: v })}
                           />
+
+                          {/* Divider */}
+                          <div className="border-t pt-2" />
+
+                          {/* Door opening (walk-through passage in scaffold frame) */}
+                          <div className="text-xs font-medium text-muted-foreground">Door opening</div>
+                          <ToggleRow
+                            label="Add door opening (entry/exit passage)"
+                            checked={!!overrides.door_opening}
+                            onChange={(v) => {
+                              if (v) {
+                                updateFromConfig({
+                                  door_opening: { bay_index: Math.floor(result.config.bays_x / 2), width: 900, height: 2000 },
+                                });
+                              } else {
+                                setOverrides((prev) => {
+                                  const { door_opening: _d, ...rest } = prev;
+                                  void _d;
+                                  return rest;
+                                });
+                              }
+                            }}
+                          />
+                          {overrides.door_opening && (
+                            <>
+                              <StepperRow
+                                label="Door bay (0=first)"
+                                value={overrides.door_opening.bay_index}
+                                min={0}
+                                max={Math.max(0, result.config.bays_x - 1)}
+                                onChange={(v) => updateFromConfig({ door_opening: { ...overrides.door_opening!, bay_index: v } })}
+                              />
+                              <StepperRow
+                                label="Door width (mm)"
+                                value={overrides.door_opening.width}
+                                min={600}
+                                max={2000}
+                                step={100}
+                                onChange={(v) => updateFromConfig({ door_opening: { ...overrides.door_opening!, width: v } })}
+                              />
+                              <StepperRow
+                                label="Door height (mm)"
+                                value={overrides.door_opening.height}
+                                min={1500}
+                                max={result.config.lift_height}
+                                step={100}
+                                onChange={(v) => updateFromConfig({ door_opening: { ...overrides.door_opening!, height: v } })}
+                              />
+                            </>
+                          )}
                         </CardContent>
                       </Card>
 
