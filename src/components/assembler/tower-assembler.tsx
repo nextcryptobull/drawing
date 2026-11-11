@@ -441,11 +441,23 @@ export function TowerAssembler() {
                             <div className="space-y-2">
                               {overrides.sections.map((sec, idx) => (
                                 <div key={idx} className={cn("flex items-center gap-2 rounded border p-2",
-                                  idx === 0 ? "border-yellow-500/40 bg-yellow-500/5" : "border-border")}>
+                                  (sec as { label?: string }).label === "ACCESS" || (sec as { label?: string }).label === "STAIRCASE"
+                                    ? "border-yellow-500/40 bg-yellow-500/5" : "border-border")}>
                                   <div className="flex-1 space-y-1">
                                     <div className="flex items-center gap-1.5">
-                                      {idx === 0 ? (
-                                        <span className="rounded bg-yellow-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-700 dark:text-yellow-400">ACCESS</span>
+                                      {(sec as { label?: string }).label ? (
+                                        <span className={cn(
+                                          "rounded px-1.5 py-0.5 text-[10px] font-semibold",
+                                          (sec as { label?: string }).label === "ACCESS"
+                                            ? "bg-yellow-500/20 text-yellow-700 dark:text-yellow-400"
+                                            : (sec as { label?: string }).label === "STAIRCASE"
+                                            ? "bg-orange-500/20 text-orange-700 dark:text-orange-400"
+                                            : (sec as { label?: string }).label === "REINFORCED"
+                                            ? "bg-red-500/20 text-red-700 dark:text-red-400"
+                                            : "bg-muted text-muted-foreground"
+                                        )}>
+                                          {(sec as { label?: string }).label}
+                                        </span>
                                       ) : (
                                         <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">FILLER {idx}</span>
                                       )}

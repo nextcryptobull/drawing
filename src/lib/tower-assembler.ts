@@ -55,7 +55,7 @@ export interface BayConfig {
   /** Secondary access ladder (auto at >=20m height or length) */
   secondary_access: boolean;
   /** Optional mixed sections (overrides bays_x/bay_length_x) */
-  sections?: Array<{ bays: number; bay_length: number }>;
+  sections?: Array<{ bays: number; bay_length: number; label?: string }>;
 }
 
 export interface PartsBom {
@@ -1438,7 +1438,7 @@ export const TOWER_PRESETS: Array<{
  * Returns: { sections, height, width, overrides } or null if parse fails.
  */
 export interface ParsedScaffoldRequest {
-  sections: Array<{ bays: number; bay_length: number }>;
+  sections: Array<{ bays: number; bay_length: number; label?: string }>;
   height: number;  // mm
   width: number;   // mm
   overrides: Partial<BayConfig>;
@@ -1452,7 +1452,7 @@ export function parseScaffoldRequest(text: string): ParsedScaffoldRequest | null
   const parts = cleaned.split(/,/).map((s) => s.trim()).filter(Boolean);
   if (parts.length === 0) return null;
 
-  const sections: Array<{ bays: number; bay_length: number }> = [];
+  const sections: Array<{ bays: number; bay_length: number; label?: string }> = [];
   const overrides: Partial<BayConfig> = {};
   const parseWarnings: string[] = [];
   let height = 0;
@@ -1515,8 +1515,9 @@ export function parseScaffoldRequest(text: string): ParsedScaffoldRequest | null
       overrides.include_ladder = true;
     }
 
-    // Add as a section
-    sections.push({ bays: bayCount, bay_length: bayLength });
+    // Add as a section with label
+    const label = isStaircase ? "STAIRCASE" : isAccess ? "ACCESS" : isReinforced ? "REINFORCED" : undefined;
+    sections.push({ bays: bayCount, bay_length: bayLength, label });
 
     // Mark reinforced sections
     if (isReinforced) {
