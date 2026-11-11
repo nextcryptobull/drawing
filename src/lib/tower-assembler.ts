@@ -690,7 +690,15 @@ export function assembleTower(
     ledgersXTotal += numBays * (bayY.count + 1) * (numLifts + 1);
   }
   const ledgersYTotal = ledgersYPerLevel * (numLifts + 1);
-  const ledgers = ledgersXTotal + ledgersYTotal;
+
+  // Door opening: subtract removed Y-ledgers at the door bay (-Y face)
+  // Each lift level below the door height has 1 Y-ledger removed at -Y face
+  let doorLedgersRemoved = 0;
+  if (config.door_opening) {
+    const doorLifts = Math.ceil(config.door_opening.height / liftHeight);
+    doorLedgersRemoved = doorLifts + 1; // +1 for basement level
+  }
+  const ledgers = ledgersXTotal + ledgersYTotal - doorLedgersRemoved;
 
   // Braces — per bay_length group. Diagonals are placed at every 3rd bay
   // and at the two extremities (bay 0 + last bay) per the user's rule:
@@ -1288,6 +1296,26 @@ export function assembleTower(
         total_weight_kg: Math.round(stepTotalW * 100) / 100,
       });
     }
+  }
+
+  // DOOR OPENING: header beam (strengthening beam above the door)
+  // Uses a reinforced ledger (MDCRLE0xxx) as the header beam
+  if (config.door_opening) {
+    const doorBayLen = sections
+      ? sections[config.door_opening.bay_index]?.bay_length ?? bayX.size
+      : bayX.size;
+    const headerWeight = REINFORCED_LEDGER_WEIGHTS[doorBayLen]
+      ?? lookupWeight(LEDGER_WEIGHTS, doorBayLen, 3.5, 1.0) * 1.5;
+    const totalW = headerWeight;
+    totalWeight += totalW;
+    details.push({
+      part_type: "Header beam",
+      description: `Door header beam ${doorBayLen}mm (reinforced, above door opening) — MDCRLE${String(doorBayLen).padStart(4, "0")}`,
+      size: `${doorBayLen}mm`,
+      quantity: 1,
+      unit_weight_kg: Math.round(headerWeight * 100) / 100,
+      total_weight_kg: Math.round(totalW * 100) / 100,
+    });
   }
 
   const estimatedWeight = Math.round(totalWeight);

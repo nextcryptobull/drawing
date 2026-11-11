@@ -722,7 +722,8 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
           }}
         >
           <boxGeometry args={[trapLenX, trapWidthY, trapThk]} />
-          <meshStandardMaterial color="#e85d04" roughness={0.5} metalness={0.3} />
+          {/* Brown wood-plank color — same as gratings, looks solid (not a hole) */}
+          <meshStandardMaterial color="#8b6f47" roughness={0.85} metalness={0.1} />
         </mesh>
         {/* Hinge bar — on INNER Y edge (towards scaffold frame) */}
         <mesh position={[trapX, hingeY, trapZ]} castShadow>
@@ -954,9 +955,20 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       )}
 
       {/* ---- Regular ledgers (horizontal tubes at lift levels, clickable) ---- */}
+      {/* Door opening: skip Y-ledgers at -Y face within the door bay and below door height */}
       {ledgers.map((l, idx) => {
         const partId = `ledger-${idx}`;
         if (isRemoved(partId)) return null;
+        // Check if this ledger is inside the door opening
+        if (door_opening) {
+          const doorBayCenter = bayLayout.bayCenters[door_opening.bay_index];
+          const doorBayStart = bayLayout.standardXs[door_opening.bay_index];
+          const doorBayEnd = doorBayStart + bayLayout.bayLengths[door_opening.bay_index];
+          const isXInDoorBay = l.x >= doorBayStart && l.x <= doorBayEnd;
+          const isYAtDoorFace = l.y < 0 && Math.abs(l.y + towerY / 2) < 100; // -Y face
+          const isZBelowDoor = l.z <= door_opening.height;
+          if (isXInDoorBay && isYAtDoorFace && isZBelowDoor) return null; // skip — door opening
+        }
         const rot: [number, number, number] =
           l.axis === "x" ? [0, 0, Math.PI / 2] : [0, 0, 0];
         return (
@@ -977,11 +989,21 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       })}
 
       {/* ---- Diagonal braces (clickable) ---- */}
+      {/* Door opening: skip braces at -Y face within the door bay and below door height */}
       {braces.map((b, idx) => {
         const partId = `brace-${idx}`;
         if (isRemoved(partId)) return null;
         const [x1, y1, z1] = b.from;
         const [x2, y2, z2] = b.to;
+        // Check if this brace is inside the door opening
+        if (door_opening) {
+          const doorBayStart = bayLayout.standardXs[door_opening.bay_index];
+          const doorBayEnd = doorBayStart + bayLayout.bayLengths[door_opening.bay_index];
+          const isXInDoorBay = (x1 >= doorBayStart && x1 <= doorBayEnd) || (x2 >= doorBayStart && x2 <= doorBayEnd);
+          const isYAtDoorFace = y1 < 0 && Math.abs(y1 + towerY / 2) < 100;
+          const isZBelowDoor = z1 < door_opening.height && z2 < door_opening.height;
+          if (isXInDoorBay && isYAtDoorFace && isZBelowDoor) return null; // skip — door opening
+        }
         const dx = x2 - x1;
         const dy = y2 - y1;
         const dz = z2 - z1;
@@ -1495,7 +1517,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
             {/* Visual door panel (semi-transparent, shows the opening) */}
             <mesh position={[bayCenterX, -towerY / 2, doorHeight / 2]}>
               <boxGeometry args={[doorWidth, 10, doorHeight]} />
-              <meshStandardMaterial color="#e85d04" transparent opacity={0.3} roughness={0.5} />
+              <meshStandardMaterial color="#8b6f47" transparent opacity={0.4} roughness={0.85} metalness={0.1} />
             </mesh>
           </group>
         );
