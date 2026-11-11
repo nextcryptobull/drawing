@@ -829,12 +829,12 @@ export function assembleTower(
     ? sections.reduce((s, sec) => s + sec.bays, 0)
     : bayX.count;
   const lastBayIdxForLedgers = totalBaysForLedgers - 1;
-  // Reference BOM practice: if a bay_length has a matching reinforced catalog
-  // entry (MDCRLE0xxx), ALL bays of that length use reinforced ledgers — not
-  // just staircase/force bays. This matches the reference BOM Tana Façade
-  // which shows 64× MDCRLE2072 for ALL 2070mm bays.
-  const needsReinforcedLedger = (bayLength: number): boolean => {
-    return REINFORCED_LEDGER_WEIGHTS[bayLength] != null;
+  // Reference BOM practice: only bays explicitly marked as "REINFORCED"
+  // in the text parser use reinforced ledgers (MDCRLE0xxx). Regular bays
+  // always use regular ledgers (MDCLED0xxx). This matches the reference
+  // BOM Tana Façade which shows MDCRLE2072 only for specific reinforced bays.
+  const needsReinforcedLedger = (bayLength: number, label?: string): boolean => {
+    return label === "REINFORCED" && REINFORCED_LEDGER_WEIGHTS[bayLength] != null;
   };
 
   // Build a map: { bayLength -> { reinforced: bayCount, regular: bayCount } }
@@ -845,7 +845,7 @@ export function assembleTower(
       for (let i = 0; i < sec.bays; i++) {
         const len = sec.bay_length;
         if (!ledgerBaysByLength[len]) ledgerBaysByLength[len] = { reinforced: 0, regular: 0 };
-        if (needsReinforcedLedger(len)) {
+        if (needsReinforcedLedger(len, sec.label)) {
           ledgerBaysByLength[len].reinforced++;
         } else {
           ledgerBaysByLength[len].regular++;
@@ -1155,14 +1155,25 @@ export function assembleTower(
     const trapdoorLen = trapdoorKeys.reduce((closest, current) =>
       Math.abs(current - accessBayLength) < Math.abs(closest - accessBayLength)
         ? current : closest, trapdoorKeys[0]);
-    const numAccessBays = 1 + (config.secondary_access ? 1 : 0);
-    const trapdoorQty = numAccessBays * numLifts;
+    // Count access bays the same way as the staircase/ladder section
+    let trapdoorAccessBays: number;
+    if (sections) {
+      trapdoorAccessBays = sections.filter(
+        (s) => s.label === "ACCESS" || s.label === "STAIRCASE"
+      ).reduce((sum, s) => sum + s.bays, 0);
+      if (trapdoorAccessBays === 0 && (config.include_ladder || config.secondary_access)) {
+        trapdoorAccessBays = (config.include_ladder ? 1 : 0) + (config.secondary_access ? 1 : 0);
+      }
+    } else {
+      trapdoorAccessBays = (config.include_ladder ? 1 : 0) + (config.secondary_access ? 1 : 0);
+    }
+    const trapdoorQty = trapdoorAccessBays * numLifts;
     const unitW = TRAPDOOR_WEIGHTS[trapdoorLen];
     const totalW = trapdoorQty * unitW;
     totalWeight += totalW;
     details.push({
       part_type: "Trapdoor with ladder",
-      description: `Trapdoor with ladder ${trapdoorLen}mm — MDCTWL${String(trapdoorLen).padStart(4, "0")}  ×${numAccessBays} access bay(s) × ${numLifts} lifts`,
+      description: `Trapdoor with ladder ${trapdoorLen}mm — MDCTWL${String(trapdoorLen).padStart(4, "0")}  ×${trapdoorAccessBays} access bay(s) × ${numLifts} lifts`,
       size: `${trapdoorLen}mm`,
       quantity: trapdoorQty,
       unit_weight_kg: unitW,
@@ -1213,97 +1224,96 @@ export function assembleTower(
     }
   }
 
-  // ACCESS STAIRCASE / LADDER SECTIONS.
-  // When staircase_type = 'stairs': use removable staircase (MDCRSC2134 +
-  //   MDCGRFS2134 + MDCSFS0860) — heavy, proper staircase with flat treads.
-  // When staircase_type = 'ladder': use Monker ladder (MDCMON2000/3000) —
-  //   lighter, inclined ladder at 15° from vertical.
-  // Both modes use the same non-adjacent angular pattern (alternating Y face
-  // per lift). The BOM weight changes significantly between modes.
-  //
-  // FIX-2: When the text parser supplies sections, bays labeled "ACCESS" (or
-  //   "STAIRCASE") are full structural bays. The Monker ladder / staircase
-  //   count is `numAccessBays × numLifts`, where numAccessBays is the actual
-  //   count of access sections — not hardcoded to 1 primary + 1 secondary max.
-  //   When sections are NOT supplied, fall back to the legacy logic
-  //   (1 primary + 1 secondary max).
+  // ACCESS ITEMS: emit Monker ladders AND/OR staircases depending on section labels.
+  // - Sections labeled "ACCESS" (without "STAIRCASE") → Monker ladder (MDCMON)
+  // - Sections labeled "STAIRCASE" → removable staircase (MDCRSC2134 + rail + steps)
+  // - Legacy (no sections): use staircase_type to decide (ladder vs stairs)
+  // Both types can coexist in the same scaffold (e.g., 2 Monker access + 1 staircase access).
   {
-    let numAccessBays: number;
+    // Count Monker access bays vs staircase access bays
+    let numMonkerBays: number;
+    let numStaircaseBays: number;
     if (sections) {
-      numAccessBays = sections.filter(
-        (s) => s.label === "ACCESS" || s.label === "STAIRCASE"
+      numMonkerBays = sections.filter(
+        (s) => s.label === "ACCESS"
+      ).reduce((sum, s) => sum + s.bays, 0);
+      numStaircaseBays = sections.filter(
+        (s) => s.label === "STAIRCASE"
       ).reduce((sum, s) => sum + s.bays, 0);
       // Fallback: if parser set include_ladder but no labelled access bays,
-      // still emit at least 1 access bay (matches legacy behavior).
-      if (numAccessBays === 0 && (config.include_ladder || config.secondary_access)) {
-        numAccessBays = (config.include_ladder ? 1 : 0) + (config.secondary_access ? 1 : 0);
+      // use legacy logic based on staircase_type
+      if (numMonkerBays === 0 && numStaircaseBays === 0 && (config.include_ladder || config.secondary_access)) {
+        if (config.staircase_type === "stairs") {
+          numStaircaseBays = (config.include_ladder ? 1 : 0) + (config.secondary_access ? 1 : 0);
+        } else {
+          numMonkerBays = (config.include_ladder ? 1 : 0) + (config.secondary_access ? 1 : 0);
+        }
       }
     } else {
-      numAccessBays = (config.include_ladder ? 1 : 0) + (config.secondary_access ? 1 : 0);
-    }
-    if (numAccessBays > 0) {
-      const accessBayTags: string[] = [];
-      if (config.include_ladder) accessBayTags.push("primary");
-      if (config.secondary_access) accessBayTags.push("secondary");
-
-      if (config.staircase_type === "ladder") {
-        // LADDER MODE: Monker ladder sections (MDCMON2000/3000)
-        // Each access bay gets one ladder per lift, assembled from 3m + 2m
-        // Monker sections + spigot couplers (MDCSWC0125).
-        const ladderSections = computeLadderAssembly(towerHeightTotal);
-        const totalStaircaseQty = numAccessBays * numLifts;
-        const sectionWeight = ladderSections.sectionWeight;
-        const spigotCount = ladderSections.spigotCount;
-        const totalSpigotQty = totalStaircaseQty * spigotCount;
-        const ladderTotalW = totalStaircaseQty * sectionWeight;
-        const spigotTotalW = totalSpigotQty * SPIGOT_WITH_COUPLER_WEIGHT;
-        totalWeight += ladderTotalW + spigotTotalW;
-
-        details.push({
-          part_type: "Ladder",
-          description: `Monker ladder (${ladderSections.sectionCount} sections + ${spigotCount} spigots per lift) — ${accessBayTags.join("+")}, ${numLifts} lifts`,
-          size: `${towerHeightTotal}mm`,
-          quantity: totalStaircaseQty,
-          unit_weight_kg: Math.round((sectionWeight + spigotCount * SPIGOT_WITH_COUPLER_WEIGHT) * 100) / 100,
-          total_weight_kg: Math.round((ladderTotalW + spigotTotalW) * 100) / 100,
-        });
+      // Legacy: no sections, use staircase_type
+      if (config.staircase_type === "stairs") {
+        numStaircaseBays = (config.include_ladder ? 1 : 0) + (config.secondary_access ? 1 : 0);
+        numMonkerBays = 0;
       } else {
-        // STAIRS MODE: removable staircase (MDCRSC2134 + MDCGRFS2134 + MDCSFS0860)
-        const staircaseQtyPerBay = numLifts;
-        const totalStaircaseQty = numAccessBays * staircaseQtyPerBay;
-        const totalGuardRailQty = totalStaircaseQty;
-        const totalStepQty = totalStaircaseQty * STEPS_PER_STAIRCASE;
-
-        const staircaseTotalW = totalStaircaseQty * REMOVABLE_STAIRCASE_WEIGHT;
-        const guardRailTotalW = totalGuardRailQty * STAIRCASE_GUARD_RAIL_WEIGHT;
-        const stepTotalW = totalStepQty * STAIRCASE_STEP_WEIGHT;
-        totalWeight += staircaseTotalW + guardRailTotalW + stepTotalW;
-
-        details.push({
-          part_type: "Removable staircase",
-          description: `Removable staircase 2134mm — MDCRSC2134  (${numAccessBays} access bay(s): ${accessBayTags.join("+")}, ${numLifts} lifts each, non-adjacent angular)`,
-          size: "2134mm",
-          quantity: totalStaircaseQty,
-          unit_weight_kg: REMOVABLE_STAIRCASE_WEIGHT,
-          total_weight_kg: Math.round(staircaseTotalW * 100) / 100,
-        });
-        details.push({
-          part_type: "Staircase guard rail",
-          description: `Guard rail for staircase — MDCGRFS2134  (1 per staircase)`,
-          size: "2134mm",
-          quantity: totalGuardRailQty,
-          unit_weight_kg: STAIRCASE_GUARD_RAIL_WEIGHT,
-          total_weight_kg: Math.round(guardRailTotalW * 100) / 100,
-        });
-        details.push({
-          part_type: "Staircase step",
-          description: `Step for staircase — MDCSFS0860  (${STEPS_PER_STAIRCASE} per staircase)`,
-          size: "860mm",
-          quantity: totalStepQty,
-          unit_weight_kg: STAIRCASE_STEP_WEIGHT,
-          total_weight_kg: Math.round(stepTotalW * 100) / 100,
-        });
+        numMonkerBays = (config.include_ladder ? 1 : 0) + (config.secondary_access ? 1 : 0);
+        numStaircaseBays = 0;
       }
+    }
+
+    // Emit Monker ladders (if any Monker access bays)
+    if (numMonkerBays > 0) {
+      const ladderSections = computeLadderAssembly(towerHeightTotal);
+      const totalLadderQty = numMonkerBays * numLifts;
+      const sectionWeight = ladderSections.sectionWeight;
+      const spigotCount = ladderSections.spigotCount;
+      const totalSpigotQty = totalLadderQty * spigotCount;
+      const ladderTotalW = totalLadderQty * sectionWeight;
+      const spigotTotalW = totalSpigotQty * SPIGOT_WITH_COUPLER_WEIGHT;
+
+      details.push({
+        part_type: "Ladder",
+        description: `Monker ladder (${ladderSections.sectionCount} sections + ${spigotCount} spigots per lift) — ${numMonkerBays} Monker access bay(s), ${numLifts} lifts`,
+        size: `${towerHeightTotal}mm`,
+        quantity: totalLadderQty,
+        unit_weight_kg: Math.round((sectionWeight + spigotCount * SPIGOT_WITH_COUPLER_WEIGHT) * 100) / 100,
+        total_weight_kg: Math.round((ladderTotalW + spigotTotalW) * 100) / 100,
+      });
+    }
+
+    // Emit staircases (if any staircase access bays)
+    if (numStaircaseBays > 0) {
+      const totalStaircaseQty = numStaircaseBays * numLifts;
+      const totalGuardRailQty = totalStaircaseQty;
+      const totalStepQty = totalStaircaseQty * STEPS_PER_STAIRCASE;
+
+      const staircaseTotalW = totalStaircaseQty * REMOVABLE_STAIRCASE_WEIGHT;
+      const guardRailTotalW = totalGuardRailQty * STAIRCASE_GUARD_RAIL_WEIGHT;
+      const stepTotalW = totalStepQty * STAIRCASE_STEP_WEIGHT;
+
+      details.push({
+        part_type: "Removable staircase",
+        description: `Removable staircase 2134mm — MDCRSC2134  (${numStaircaseBays} staircase access bay(s), ${numLifts} lifts each, non-adjacent angular)`,
+        size: "2134mm",
+        quantity: totalStaircaseQty,
+        unit_weight_kg: REMOVABLE_STAIRCASE_WEIGHT,
+        total_weight_kg: Math.round(staircaseTotalW * 100) / 100,
+      });
+      details.push({
+        part_type: "Staircase guard rail",
+        description: `Guard rail for staircase — MDCGRFS2134  (1 per staircase)`,
+        size: "2134mm",
+        quantity: totalGuardRailQty,
+        unit_weight_kg: STAIRCASE_GUARD_RAIL_WEIGHT,
+        total_weight_kg: Math.round(guardRailTotalW * 100) / 100,
+      });
+      details.push({
+        part_type: "Staircase step",
+        description: `Step for staircase — MDCSFS0860  (${STEPS_PER_STAIRCASE} per staircase)`,
+        size: "860mm",
+        quantity: totalStepQty,
+        unit_weight_kg: STAIRCASE_STEP_WEIGHT,
+        total_weight_kg: Math.round(stepTotalW * 100) / 100,
+      });
     }
   }
 
@@ -1570,7 +1580,11 @@ export function parseScaffoldRequest(text: string): ParsedScaffoldRequest | null
     }
 
     // Add as a section with label
-    const label = isStaircase && !isAccess ? "STAIRCASE" : isAccess ? "ACCESS" : isReinforced ? "REINFORCED" : undefined;
+    // "accès staircase" → label "STAIRCASE" (staircase access bay, uses MDCRSC)
+    // "accès" (without staircase) → label "ACCESS" (Monker ladder access bay)
+    // "staircase" (without accès) → label "STAIRCASE" (staircase tower mode)
+    // "renforcée" → label "REINFORCED"
+    const label = isStaircase ? "STAIRCASE" : isAccess ? "ACCESS" : isReinforced ? "REINFORCED" : undefined;
     sections.push({ bays: bayCount, bay_length: bayLength, label });
 
     // Mark reinforced sections
@@ -1592,6 +1606,12 @@ export function parseScaffoldRequest(text: string): ParsedScaffoldRequest | null
   // When user explicitly specifies access bays in the text request,
   // disable auto secondary_access (don't auto-trigger escape at ≥20m)
   if (hasAccess) {
+    overrides.secondary_access = false;
+  }
+  // When no access is specified at all, also disable auto secondary_access
+  // (the user's spec is explicit — don't add access they didn't ask for)
+  if (!hasAccess && !hasStaircase) {
+    overrides.include_ladder = false;
     overrides.secondary_access = false;
   }
 
