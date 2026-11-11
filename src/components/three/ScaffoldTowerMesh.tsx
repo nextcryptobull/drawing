@@ -676,7 +676,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
   ) => {
     const pw = plank_width;
     const gap = 4;
-    const trapThk = 50;
+    const trapThk = 80;
     const trapLenX = bayLen / 3;
     // Trapdoor X: extends INWARD from the staircase exit.
     // When exit is at +X end (xTop > xBottom): trapX = xTop - trapLenX/2 (extends toward -X, inward)
