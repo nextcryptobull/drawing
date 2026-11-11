@@ -629,9 +629,8 @@ export function TowerAssembler() {
                           <div className="border-t pt-2" />
 
                           {/* Door opening (walk-through passage in scaffold frame) */}
-                          <div className="text-xs font-medium text-muted-foreground">Door opening</div>
                           <ToggleRow
-                            label="Add door opening (entry/exit passage)"
+                            label="Door opening (entry/exit passage)"
                             checked={!!overrides.door_opening}
                             onChange={(v) => {
                               if (v) {
