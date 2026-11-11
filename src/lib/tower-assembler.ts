@@ -1522,7 +1522,14 @@ export function parseScaffoldRequest(text: string): ParsedScaffoldRequest | null
       continue; // door is not a bay section
     }
 
-    if (isStaircase) {
+    if (isStaircase && isAccess) {
+      // "accès staircase" = access bay that uses STAIRS instead of ladder
+      // NOT a staircase tower — just an access bay with staircase_type="stairs"
+      hasStaircase = true;
+      overrides.staircase_type = "stairs";
+      // Do NOT set staircase_tower=true
+    } else if (isStaircase) {
+      // "staircase" (without "accès") = dedicated staircase tower
       hasStaircase = true;
       overrides.staircase_type = "stairs";
       overrides.staircase_tower = true;
@@ -1534,7 +1541,7 @@ export function parseScaffoldRequest(text: string): ParsedScaffoldRequest | null
     }
 
     // Add as a section with label
-    const label = isStaircase ? "STAIRCASE" : isAccess ? "ACCESS" : isReinforced ? "REINFORCED" : undefined;
+    const label = isStaircase && !isAccess ? "STAIRCASE" : isAccess ? "ACCESS" : isReinforced ? "REINFORCED" : undefined;
     sections.push({ bays: bayCount, bay_length: bayLength, label });
 
     // Mark reinforced sections
@@ -1552,6 +1559,11 @@ export function parseScaffoldRequest(text: string): ParsedScaffoldRequest | null
   if (hasAccess && !hasStaircase) {
     overrides.include_ladder = true;
     overrides.staircase_type = "ladder";
+  }
+  // When user explicitly specifies access bays in the text request,
+  // disable auto secondary_access (don't auto-trigger escape at ≥20m)
+  if (hasAccess) {
+    overrides.secondary_access = false;
   }
 
   return { sections, height, width, overrides, parseWarnings };
