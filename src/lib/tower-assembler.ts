@@ -58,6 +58,15 @@ export interface BayConfig {
   secondary_access: boolean;
   /** Optional mixed sections (overrides bays_x/bay_length_x) */
   sections?: Array<{ bays: number; bay_length: number; label?: string }>;
+  /** Optional scaffold path (L-shaped, U-shaped, angled corners).
+      Each segment has bays + length + turn angle (degrees).
+      When set, overrides sections + bays_x/bay_length_x. */
+  scaffold_path?: Array<{
+    bays: number;
+    bay_length: number;
+    turn_angle: number; // 0=straight, 90=right, -90=left, 180=U-turn
+    label?: string;
+  }>;
 }
 
 export interface PartsBom {
@@ -647,6 +656,7 @@ export function assembleTower(
     staircase_type: overrides?.staircase_type ?? "ladder",
     staircase_tower: overrides?.staircase_tower ?? false,
     door_opening: overrides?.door_opening,
+    scaffold_path: overrides?.scaffold_path,
     plank_width: overrides?.plank_width ?? 320,
     suspended_beam_length: overrides?.suspended_beam_length ?? 4000,
     secondary_access,
@@ -1451,6 +1461,7 @@ export function assemblyToTowerConfig(result: AssemblyResult) {
     staircase_type: result.config.staircase_type,
     staircase_tower: result.config.staircase_tower,
     door_opening: result.config.door_opening,
+    scaffold_path: result.config.scaffold_path,
     plank_width: result.config.plank_width,
     suspended_beam_length: result.config.suspended_beam_length,
     secondary_access: result.config.secondary_access,
@@ -1663,4 +1674,192 @@ export function parseScaffoldRequest(text: string): ParsedScaffoldRequest | null
   }
 
   return { sections, height, width, overrides, parseWarnings };
+}
+
+// ─── ANGLE SCAFFOLD (L-shaped, U-shaped, angled corners) ──────────────
+
+/**
+ * Layout for an angled scaffold path. Each segment runs in a direction
+ * determined by accumulated turn angles. Standards are placed at segment
+ * boundaries (not shared at corners — separate standards per segment).
+ */
+export interface PathLayout {
+  segments: Array<{
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+    dirX: number; // unit direction
+    dirY: number;
+    bayLength: number;
+    numBays: number;
+    label?: string;
+  }>;
+  totalBays: number;
+  totalLength: number;
+  // All standard positions (X, Y) in scaffold-local coords (Z-up)
+  standardPositions: Array<[number, number]>;
+}
+
+/**
+ * Compute 2D positions for an angled scaffold path.
+ * Segments start at origin (0,0) and each subsequent segment starts where
+ * the previous one ended, rotated by the accumulated turn angle.
+ * Standards are separate (not shared at corners).
+ */
+export function computePathLayout(
+  path: Array<{ bays: number; bay_length: number; turn_angle: number; label?: string }>
+): PathLayout {
+  const segments: PathLayout["segments"] = [];
+  const standardPositions: Array<[number, number]> = [];
+  let totalBays = 0;
+  let totalLength = 0;
+
+  // Starting position and direction
+  let curX = 0;
+  let curY = 0;
+  // Direction in degrees: 0 = +X (east), 90 = +Y (north), 180 = -X, -90 = -Y
+  let curAngleDeg = 0;
+
+  for (const seg of path) {
+    const angleRad = curAngleDeg * Math.PI / 180;
+    const dirX = Math.cos(angleRad);
+    const dirY = Math.sin(angleRad);
+    const segLen = seg.bays * seg.bay_length;
+
+    // Place standards along this segment (including start, excluding end — end is start of next)
+    for (let i = 0; i <= seg.bays; i++) {
+      const sx = curX + dirX * i * seg.bay_length;
+      const sy = curY + dirY * i * seg.bay_length;
+      standardPositions.push([sx, sy]);
+    }
+
+    const endX = curX + dirX * segLen;
+    const endY = curY + dirY * segLen;
+
+    segments.push({
+      startX: curX, startY: curY,
+      endX, endY,
+      dirX, dirY,
+      bayLength: seg.bay_length,
+      numBays: seg.bays,
+      label: seg.label,
+    });
+
+    curX = endX;
+    curY = endY;
+    // Add a small gap at the corner (so standards don't overlap)
+    curX += dirX * 50; // 50mm gap
+    curY += dirY * 50;
+
+    totalBays += seg.bays;
+    totalLength += segLen;
+
+    // Apply turn angle for the NEXT segment
+    curAngleDeg += seg.turn_angle;
+  }
+
+  return { segments, totalBays, totalLength, standardPositions };
+}
+
+/**
+ * Parse a natural-language angle scaffold request.
+ *
+ * Supports French and English:
+ *   "en forme de L: 5 baies 2.5m, virage droite 90°, 3 baies 2.5m"
+ *   "L-shape: 5 bays 2.5m, turn right 90°, 3 bays 2.5m"
+ *   "en forme de U: 4 baies 2.5m, virage gauche 90°, 3 baies 2.5m, virage gauche 90°, 4 baies 2.5m"
+ *   "U-shape: 4 bays north, turn left 90, 3 bays, turn left 90, 4 bays south"
+ *
+ * Returns a scaffold_path array with bays, bay_length, and turn_angle.
+ */
+export function parseScaffoldPath(text: string): Array<{
+  bays: number;
+  bay_length: number;
+  turn_angle: number;
+  label?: string;
+}> | null {
+  const cleaned = text.trim().toLowerCase();
+  if (!cleaned) return null;
+
+  // Split by commas or semicolons
+  const parts = cleaned.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+
+  const path: Array<{ bays: number; bay_length: number; turn_angle: number; label?: string }> = [];
+
+  for (const part of parts) {
+    // Check if this is a turn instruction
+    const turnMatch = part.match(/(?:virage|tourner|turn)\s+(droite|right|gauche|left)\s*(\d+)?/) ||
+                      part.match(/(?:virage|turn)\s+(droite|right|gauche|left)\s*(\d+)\s*°?/);
+
+    if (turnMatch) {
+      const direction = turnMatch[1];
+      const angle = turnMatch[2] ? parseInt(turnMatch[2]) : 90;
+      const turnAngle = (direction === "droite" || direction === "right") ? angle : -angle;
+
+      // Apply turn to the last segment
+      if (path.length > 0) {
+        path[path.length - 1].turn_angle = turnAngle;
+      }
+      continue;
+    }
+
+    // Parse bays + length
+    const bayMatch = part.match(/(\d+)\s*(?:baies?|bays?)\s*(?:de\s+)?(\d+\.?\d*)\s*m/);
+    if (!bayMatch) continue;
+
+    const bays = parseInt(bayMatch[1]);
+    const bayLength = Math.round(parseFloat(bayMatch[2]) * 1000);
+
+    // Detect label
+    let label: string | undefined;
+    if (/accès|access/.test(part)) label = "ACCESS";
+    else if (/staircase|escalier/.test(part)) label = "STAIRCASE";
+    else if (/renforc|reinforc/.test(part)) label = "REINFORCED";
+
+    path.push({ bays, bay_length: bayLength, turn_angle: 0, label });
+  }
+
+  return path.length > 0 ? path : null;
+}
+
+// ─── SAFETY GUARDS ────────────────────────────────────────────────────
+
+/**
+ * Safety guard: check if the current config is safe.
+ * Returns an array of warning strings (empty = all safe).
+ */
+export function checkSafetyGuards(config: BayConfig): string[] {
+  const warnings: string[] = [];
+  const towerHeight = config.num_lifts * config.lift_height;
+  const towerLength = config.bays_x * config.bay_length_x;
+
+  // Guard 1: Cannot use wheels when scaffold is too tall (> 8m)
+  if (config.base_type === "wheel" && towerHeight > 8000) {
+    warnings.push(`Wheels are not safe for scaffolds taller than 8m (current: ${(towerHeight / 1000).toFixed(1)}m). Please switch to Jack or Suspended.`);
+  }
+
+  // Guard 2: Cannot use wheels when scaffold is too long (> 20m)
+  if (config.base_type === "wheel" && towerLength > 20000) {
+    warnings.push(`Wheels are not recommended for scaffolds longer than 20m (current: ${(towerLength / 1000).toFixed(1)}m). Please switch to Jack or Suspended.`);
+  }
+
+  // Guard 3: Suspended frames require reinforced ledgers for large spans
+  if (config.base_type === "suspended") {
+    const totalWeight = (towerHeight * towerLength) / 1000000; // rough estimate in tons
+    if (totalWeight > 50 && !config.sections?.some(s => s.label === "REINFORCED")) {
+      warnings.push(`Suspended frames with large area (${(towerLength / 1000).toFixed(1)}m × ${(towerHeight / 1000).toFixed(1)}m) require reinforced ledgers. Please add a "renforcée" section.`);
+    }
+  }
+
+  // Guard 4: Suspended beams must be longer than bay width
+  if (config.base_type === "suspended") {
+    const bayWidth = config.bay_length_y;
+    if (config.suspended_beam_length < bayWidth) {
+      warnings.push(`Suspended beam (${config.suspended_beam_length}mm) is shorter than bay width (${bayWidth}mm). Please use a longer beam.`);
+    }
+  }
+
+  return warnings;
 }

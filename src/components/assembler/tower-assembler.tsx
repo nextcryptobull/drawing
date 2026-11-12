@@ -28,6 +28,8 @@ import {
   TOWER_PRESETS,
   CATALOG_LEDGER_LENGTHS,
   parseScaffoldRequest,
+  parseScaffoldPath,
+  checkSafetyGuards,
   type BayConfig,
 } from "@/lib/tower-assembler";
 import { generateBomPdf } from "@/lib/generate-bom-pdf";
@@ -71,6 +73,7 @@ export function TowerAssembler() {
   const [overrides, setOverrides] = useState<Partial<BayConfig>>({});
   const [removedParts, setRemovedParts] = useState<Set<string>>(new Set());
   const [requestText, setRequestText] = useState("");
+  const [pathText, setPathText] = useState("");
 
   /** Parse the natural-language scaffold request and apply it */
   function handleParseRequest() {
@@ -124,6 +127,31 @@ export function TowerAssembler() {
     if (!result) return null;
     return assemblyToTowerConfig(result);
   }, [result]);
+
+  /** Parse the angle scaffold path (L-shape, U-shape) and apply it */
+  function handleParsePath() {
+    const path = parseScaffoldPath(pathText);
+    if (!path) {
+      toast.error("Could not parse path", {
+        description: "Format: 'en forme de L: 5 baies 2.5m, virage droite 90°, 3 baies 2.5m'",
+      });
+      return;
+    }
+    // Set a basic dimension input for height/width (path handles length)
+    setInput(`1x2x6m`);
+    setOverrides({
+      scaffold_path: path,
+      include_ladder: false,
+      secondary_access: false,
+      staircase_tower: false,
+      staircase_type: "ladder",
+    });
+    const totalBays = path.reduce((s, p) => s + p.bays, 0);
+    const totalLen = path.reduce((s, p) => s + p.bays * p.bay_length, 0);
+    toast.success("Path parsed", {
+      description: `${path.length} segments, ${totalBays} bays, ${(totalLen / 1000).toFixed(2)}m total`,
+    });
+  }
 
   /**
    * Generate a comprehensive BOM PDF (with Madacan logo, full BOM table,
@@ -317,6 +345,35 @@ export function TowerAssembler() {
                     </p>
                   </div>
 
+                  {/* Angle scaffold path (L-shape, U-shape) */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">
+                      Angle scaffold (L/U-shape)
+                    </Label>
+                    <div className="flex gap-2">
+                      <Input
+                        value={pathText}
+                        onChange={(e) => setPathText(e.target.value)}
+                        placeholder="en forme de L: 5 baies 2.5m, virage droite 90°, 3 baies 2.5m"
+                        className="font-mono text-xs"
+                        autoComplete="off"
+                      />
+                      <Button
+                        size="sm"
+                        variant="default"
+                        onClick={handleParsePath}
+                        disabled={!pathText.trim()}
+                        className="shrink-0"
+                      >
+                        <Zap className="mr-1 size-3" />
+                        Path
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      <code className="rounded bg-muted px-1">virage droite/gauche</code> or <code className="rounded bg-muted px-1">turn right/left</code> + angle°
+                    </p>
+                  </div>
+
                       {/* Quick presets */}
                       <div>
                         <Label className="mb-1.5 block text-xs text-muted-foreground">
@@ -430,6 +487,26 @@ export function TowerAssembler() {
                               </ul>
                             </div>
                           )}
+
+                          {/* Safety guards */}
+                          {(() => {
+                            const safety = checkSafetyGuards(result.config);
+                            if (safety.length === 0) return null;
+                            return (
+                              <div className="rounded-md border border-red-500/30 bg-red-500/5 p-2.5">
+                                <div className="text-xs font-medium text-red-600 dark:text-red-500">
+                                  Safety warnings:
+                                </div>
+                                <ul className="mt-1 space-y-0.5">
+                                  {safety.map((w, i) => (
+                                    <li key={i} className="text-xs text-red-600 dark:text-red-400">
+                                      ⚠ {w}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            );
+                          })()}
                         </CardContent>
                       </Card>
 

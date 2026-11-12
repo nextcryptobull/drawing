@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import * as THREE from "three";
 
 import type { TowerConfig } from "@/lib/part-types";
-import { computeSectionLayout } from "@/lib/tower-assembler";
+import { computeSectionLayout, computePathLayout } from "@/lib/tower-assembler";
 
 /**
  * Procedural scaffold tower assembly built from THREE primitives.
@@ -60,6 +60,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     plank_width = 320,
     secondary_access = false,
     sections,
+    scaffold_path,
   } = config as TowerConfig & {
     base_type?: "jack" | "wheel" | "suspended";
     suspended_beam_length?: number;
@@ -73,6 +74,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     plank_width?: 320 | 230;
     secondary_access?: boolean;
     sections?: Array<{ bays: number; bay_length: number; label?: string }>;
+    scaffold_path?: Array<{ bays: number; bay_length: number; turn_angle: number; label?: string }>;
   };
 
   // When secondary access is enabled (auto at ≥20m height/length), the primary
@@ -760,8 +762,125 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     );
   };
 
+  // ─── Angle scaffold path rendering ────────────────────────────────────
+  // When scaffold_path is set, render standards + ledgers at 2D positions
+  // following the path (L-shape, U-shape, etc.).
+  const pathLayout = useMemo(() => {
+    if (!scaffold_path || scaffold_path.length === 0) return null;
+    return computePathLayout(scaffold_path);
+  }, [scaffold_path]);
+
+  const renderAngleScaffold = () => {
+    if (!pathLayout) return null;
+    const railR = tubeR * 0.7;
+    return (
+      <group>
+        {/* Standards at each path position (2 rows: front + back of each segment) */}
+        {pathLayout.standardPositions.map(([x, y], idx) => (
+          <group key={`path-std-${idx}`} position={[x, y, 0]}>
+            {/* Vertical standard tube */}
+            <mesh
+              rotation={verticalRotation}
+              position={[0, 0, towerHeight / 2]}
+              material={materials.standard}
+              castShadow
+              receiveShadow
+            >
+              <cylinderGeometry args={[tubeR, tubeR, towerHeight, 24]} />
+            </mesh>
+            {/* Rosettes at each lift level */}
+            {rosetteZs.map((z, ri) => (
+              <mesh
+                key={`path-ros-${idx}-${ri}`}
+                rotation={verticalRotation}
+                position={[0, 0, z]}
+                material={materials.rosette}
+                castShadow
+              >
+                <cylinderGeometry args={[rosetteR, rosetteR, rosette_thickness, 48]} />
+              </mesh>
+            ))}
+            {/* Base (jack or wheel or suspended) */}
+            {base_type === "wheel" ? (
+              <group position={[0, 0, -180]}>
+                <mesh material={materials.wheel} castShadow>
+                  <cylinderGeometry args={[100, 100, 48, 32]} />
+                </mesh>
+              </group>
+            ) : base_type === "suspended" ? (
+              <mesh rotation={verticalRotation} position={[0, 0, towerHeight + 40]} material={materials.spigot} castShadow>
+                <cylinderGeometry args={[20, 20, 80, 16]} />
+              </mesh>
+            ) : (
+              <group position={[0, 0, 0]}>
+                <mesh rotation={verticalRotation} position={[0, 0, -base_jack_length / 2]} material={materials.baseJack} castShadow>
+                  <cylinderGeometry args={[19, 19, base_jack_length, 20]} />
+                </mesh>
+                <mesh position={[0, 0, -base_jack_length + 3]} material={materials.baseJack} castShadow receiveShadow>
+                  <boxGeometry args={[150, 150, 6]} />
+                </mesh>
+              </group>
+            )}
+          </group>
+        ))}
+        {/* Ledgers along each segment */}
+        {pathLayout.segments.map((seg, segIdx) => (
+          <group key={`path-seg-${segIdx}`}>
+            {Array.from({ length: seg.numBays }).map((_, bayIdx) => {
+              const t = (bayIdx + 0.5) / seg.numBays;
+              const mx = seg.startX + (seg.endX - seg.startX) * t;
+              const my = seg.startY + (seg.endY - seg.startY) * t;
+              const segAngle = Math.atan2(seg.dirY, seg.dirX);
+              return rosetteZs.map((z, liftIdx) => (
+                <mesh
+                  key={`path-ledger-${segIdx}-${bayIdx}-${liftIdx}`}
+                  rotation={[0, 0, segAngle + Math.PI / 2]}
+                  position={[mx, my, z]}
+                  material={seg.label === "REINFORCED" ? materials.reinforcedLedger : materials.ledger}
+                  castShadow
+                >
+                  <cylinderGeometry args={[ledgerR, ledgerR, seg.bayLength, 20]} />
+                </mesh>
+              ));
+            })}
+          </group>
+        ))}
+        {/* Gratings on each segment (at each lift level) */}
+        {include_gratings && pathLayout.segments.map((seg, segIdx) =>
+          rosetteZs.map((z, liftIdx) => {
+            if (disabled_platform_levels.includes(liftIdx + 1)) return null;
+            return Array.from({ length: seg.numBays }).map((_, bayIdx) => {
+              const t = (bayIdx + 0.5) / seg.numBays;
+              const mx = seg.startX + (seg.endX - seg.startX) * t;
+              const my = seg.startY + (seg.endY - seg.startY) * t;
+              const segAngle = Math.atan2(seg.dirY, seg.dirX);
+              return (
+                <mesh
+                  key={`path-grating-${segIdx}-${liftIdx}-${bayIdx}`}
+                  position={[mx, my, z - 6]}
+                  rotation={[0, 0, segAngle]}
+                  material={materials.grating}
+                  receiveShadow
+                  castShadow
+                >
+                  <boxGeometry args={[seg.bayLength * 0.94, bay_length_y * 0.94, 8]} />
+                </mesh>
+              );
+            });
+          })
+        )}
+      </group>
+    );
+  };
+
   return (
     <group>
+      {/* ---- Angle scaffold (L-shape, U-shape) — when scaffold_path is set ---- */}
+      {scaffold_path && scaffold_path.length > 0 && renderAngleScaffold()}
+
+      {/* ---- Linear scaffold (standard layout) — when no scaffold_path ---- */}
+      {!scaffold_path && (
+      <>
       {/* ---- Standards (vertical tubes + rosettes + spigot) ---- */}
       {standardPositions.map(([x, y], idx) => (
         <group key={`std-${idx}`} position={[x, y, 0]}>
@@ -1600,6 +1719,8 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         const renderFn = staircase_type === "stairs" ? renderStairs : renderStaircaseSection;
         return renderFn(lastBayIdx, liftIdx, materials.ladderSecondary, "Secondary staircase (escape)", "staircase-secondary", false);
       })}
+      </>
+      )}
     </group>
   );
 }
