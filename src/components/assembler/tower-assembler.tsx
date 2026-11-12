@@ -80,7 +80,7 @@ export function TowerAssembler() {
     const parsed = parseScaffoldRequest(requestText);
     if (!parsed) {
       toast.error("Could not parse request", {
-        description: "Format: '17 baies de 2.5x2x8m, 2 accès 2.5x2x8m, ...'",
+        description: "Format: '17 baies de 2.5x2x8m, 2 accès 2.5x2x8m, ...'  or  'en forme de L: 5 baies 2.5m, virage droite 90°, 3 baies 2.5m'",
       });
       return;
     }
@@ -89,12 +89,17 @@ export function TowerAssembler() {
     const h = (parsed.height / 1000).toString();
     const w = (parsed.width / 1000).toString();
     setInput(`1x${w}x${h}m`);
-    // Merge sections into overrides (sections is a separate field in the parsed result)
+    // Merge sections into overrides (sections is a separate field in the parsed result).
+    // Clear scaffold_path when the new request is NOT an angle scaffold, so
+    // leftover L/U-shape geometry from a previous parse doesn't persist.
+    const isAngleRequest = !!(parsed.overrides.scaffold_path && parsed.overrides.scaffold_path.length > 0);
     setOverrides({
       ...parsed.overrides,
       sections: parsed.sections,
       staircase_tower: parsed.overrides.staircase_tower ?? false,
       staircase_type: parsed.overrides.staircase_type ?? "ladder",
+      // If this isn't an angle request, drop any stale scaffold_path.
+      ...(isAngleRequest ? {} : { scaffold_path: undefined }),
     });
     if (parsed.parseWarnings.length > 0) {
       toast.success("Request parsed with warnings", {
@@ -133,19 +138,22 @@ export function TowerAssembler() {
     const path = parseScaffoldPath(pathText);
     if (!path) {
       toast.error("Could not parse path", {
-        description: "Format: 'en forme de L: 5 baies 2.5m, virage droite 90°, 3 baies 2.5m'",
+        description: "Format: 'en forme de L: 5 baies 2.5m, virage droite 90°, 3 baies 2.5m' or '5 bays 2.5m, turn right 90, 3 bays 2.5m'",
       });
       return;
     }
     // Set a basic dimension input for height/width (path handles length)
     setInput(`1x2x6m`);
-    setOverrides({
+    setOverrides((prev) => ({
+      ...prev,
       scaffold_path: path,
+      // Clear sections so the synthesized section doesn't conflict with the path
+      sections: undefined,
       include_ladder: false,
       secondary_access: false,
       staircase_tower: false,
       staircase_type: "ladder",
-    });
+    }));
     const totalBays = path.reduce((s, p) => s + p.bays, 0);
     const totalLen = path.reduce((s, p) => s + p.bays * p.bay_length, 0);
     toast.success("Path parsed", {
@@ -341,20 +349,21 @@ export function TowerAssembler() {
                       <code className="rounded bg-muted px-1">accès</code> (access),
                       <code className="rounded bg-muted px-1">staircase</code>,
                       <code className="rounded bg-muted px-1">renforcée</code>,
-                      <code className="rounded bg-muted px-1">porte</code> (door)
+                      <code className="rounded bg-muted px-1">porte</code> (door),
+                      <code className="rounded bg-muted px-1">L/U-shape</code> (angle — auto-detected)
                     </p>
                   </div>
 
                   {/* Angle scaffold path (L-shape, U-shape) */}
                   <div className="space-y-1.5">
                     <Label className="text-xs text-muted-foreground">
-                      Angle scaffold (L/U-shape)
+                      Angle scaffold (L/U-shape) — also works in the multi-section field above
                     </Label>
                     <div className="flex gap-2">
                       <Input
                         value={pathText}
                         onChange={(e) => setPathText(e.target.value)}
-                        placeholder="en forme de L: 5 baies 2.5m, virage droite 90°, 3 baies 2.5m"
+                        placeholder="5 bays 2.5m, turn right 90, 3 bays 2.5m  (or)  en forme de L: 5 baies 2.5m, virage droite 90°, 3 baies 2.5m"
                         className="font-mono text-xs"
                         autoComplete="off"
                       />
@@ -370,7 +379,7 @@ export function TowerAssembler() {
                       </Button>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      <code className="rounded bg-muted px-1">virage droite/gauche</code> or <code className="rounded bg-muted px-1">turn right/left</code> + angle°
+                      <code className="rounded bg-muted px-1">virage droite/gauche</code> or <code className="rounded bg-muted px-1">turn right/left</code> + angle° (bay length optional, defaults to 2.5m)
                     </p>
                   </div>
 

@@ -1564,6 +1564,39 @@ export function parseScaffoldRequest(text: string): ParsedScaffoldRequest | null
   const cleaned = text.trim().toLowerCase();
   if (!cleaned) return null;
 
+  // ─── Auto-detect angle-scaffold requests (L-shape, U-shape, virage, turn) ───
+  // If the input contains angle-scaffold keywords, route it through
+  // parseScaffoldPath instead — so users can type L/U-shape strings in EITHER
+  // the multi-section request field OR the dedicated path field.
+  const hasAngleKeyword = /\b(?:l[-\s]?shape|u[-\s]?shape|en\s+forme\s+de\s+[lu]|virage|turn\s+(?:left|right|droite|gauche))\b/.test(cleaned);
+  if (hasAngleKeyword) {
+    const path = parseScaffoldPath(text);
+    if (path && path.length > 0) {
+      // Build a ParsedScaffoldRequest that carries the path as an override.
+      // We synthesize a single "section" so the existing flow accepts it;
+      // the actual geometry comes from scaffold_path.
+      const totalBays = path.reduce((s, p) => s + p.bays, 0);
+      const firstBayLen = path[0].bay_length;
+      return {
+        sections: [{ bays: totalBays, bay_length: firstBayLen, label: "ANGLE" }],
+        height: 6000, // default 6m tall when user gives only a path
+        width: 2000,  // default 2m wide
+        overrides: {
+          scaffold_path: path,
+          include_ladder: false,
+          secondary_access: false,
+          staircase_tower: false,
+          staircase_type: "ladder",
+        },
+        parseWarnings: [
+          `Angle scaffold detected: ${path.length} segments, ${totalBays} bays total.`,
+        ],
+      };
+    }
+    // If path parsing failed, fall through to the regular parser (which will
+    // likely also fail and report "Could not parse request").
+  }
+
   const parts = cleaned.split(/,/).map((s) => s.trim()).filter(Boolean);
   if (parts.length === 0) return null;
 
@@ -1805,12 +1838,25 @@ export function parseScaffoldPath(text: string): Array<{
       continue;
     }
 
-    // Parse bays + length
+    // Parse bays + length (length optional — defaults to 2500mm)
+    // Examples:
+    //   "5 baies 2.5m" → bays=5, bayLength=2500
+    //   "5 bays"        → bays=5, bayLength=2500 (default)
+    //   "5 baies de 3m" → bays=5, bayLength=3000
     const bayMatch = part.match(/(\d+)\s*(?:baies?|bays?)\s*(?:de\s+)?(\d+\.?\d*)\s*m/);
-    if (!bayMatch) continue;
+    const bayCountOnlyMatch = !bayMatch ? part.match(/(\d+)\s*(?:baies?|bays?)/) : null;
 
-    const bays = parseInt(bayMatch[1]);
-    const bayLength = Math.round(parseFloat(bayMatch[2]) * 1000);
+    let bays: number;
+    let bayLength: number;
+    if (bayMatch) {
+      bays = parseInt(bayMatch[1]);
+      bayLength = Math.round(parseFloat(bayMatch[2]) * 1000);
+    } else if (bayCountOnlyMatch) {
+      bays = parseInt(bayCountOnlyMatch[1]);
+      bayLength = 2500; // default bay length when not specified
+    } else {
+      continue;
+    }
 
     // Detect label
     let label: string | undefined;

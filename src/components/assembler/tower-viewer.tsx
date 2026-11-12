@@ -146,15 +146,10 @@ export function TowerViewer({ config, onRemovePart, removedParts }: { config: To
   const maxDim = Math.max(frame.radius * 2, frame.height);
   const scale = 6 / Math.max(maxDim, 1);
 
-  if (!debounced) {
-    return (
-      <div className="flex h-full w-full items-center justify-center bg-[#0e0f12]">
-        <p className="text-sm text-white/50">Enter dimensions to see the tower</p>
-      </div>
-    );
-  }
-
-  // ─── Camera positioning (after the early-return for !debounced) ────────
+  // ─── Camera positioning (always computed so hooks are called
+  // unconditionally — even when debounced is null. This prevents the
+  // "Rendered fewer hooks than expected" React #300 error when the user
+  // clears the dimension input.) ─────────────────────────────────────────
   // World axes: tower X → world X, tower Z → world Y (up), tower Y → world -Z.
   // So world-X bounds = towerX, world-Y bounds = height, world-Z bounds = towerY.
   const boundsX = frame.towerX * scale;
@@ -184,13 +179,23 @@ export function TowerViewer({ config, onRemovePart, removedParts }: { config: To
       defaultCamPos.map((v) => Math.round(v * 1000) / 1000),
       defaultTarget.map((v) => Math.round(v * 1000) / 1000),
     ]);
-  }, [defaultCamPos, defaultTarget]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frame]);
 
   useEffect(() => {
+    if (!debounced) return; // no-op when there's no tower to frame
     if (lastCamSig.current === camSig) return;
     lastCamSig.current = camSig;
     setResetCounter((c) => c + 1);
-  }, [camSig]);
+  }, [camSig, debounced]);
+
+  if (!debounced) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-[#0e0f12]">
+        <p className="text-sm text-white/50">Enter dimensions to see the tower</p>
+      </div>
+    );
+  }
 
   return (
     <div className="relative h-full w-full">
