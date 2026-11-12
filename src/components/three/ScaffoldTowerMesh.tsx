@@ -1768,25 +1768,26 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
           const accessSeg = pathLayout.segments[accessSegIdx];
           const segAngle = Math.atan2(accessSeg.dirY, accessSeg.dirX);
 
-          // Determine access type: 'stairs' if segment labeled STAIRCASE OR
-          // staircase_type==='stairs', else 'ladder' (15° inclined).
+          // Determine access type:
+          // - If segment is labeled STAIRCASE → stairs (explicit)
+          // - If segment is labeled ACCESS → respect staircase_type toggle (ladder/stairs)
+          // - If no label → respect staircase_type toggle (ladder/stairs)
+          // This lets the user switch between ladder and stairs via the UI toggle
+          // even when the segment is labeled ACCESS.
           const accessSegLabel = accessSeg.label;
           const isStairs =
-            accessSegLabel === "STAIRCASE" ||
-            (accessSegLabel !== "ACCESS" && staircase_type === "stairs");
+            accessSegLabel === "STAIRCASE" || staircase_type === "stairs";
 
-          // Position the access tower OUTSIDE the main scaffold:
-          // - Origin: at the midpoint of the access segment's outer face
-          //   (outer face = +perp side, at distance halfWidth from segment centerline)
-          // - Plus an offset so the tower sits just outside the outer standard
-          //   (the inner face of the access tower touches the outer face of main scaffold)
+          // Position the access tower so its INNER face touches the OUTER
+          // face of the main scaffold (no gap — they share standards).
+          // - Main scaffold's outer standard (front row) is at:
+          //     segMid + perp × halfWidth
+          // - Access tower's inner face (local Y = -bayWidth/2) must align with that.
+          // - So tower center = segMid + perp × (halfWidth + bayWidth/2)
+          //   → inner face = tower center - perp × bayWidth/2 = segMid + perp × halfWidth ✓
           const segMidX = (accessSeg.startX + accessSeg.endX) / 2;
           const segMidY = (accessSeg.startY + accessSeg.endY) / 2;
           const halfWidth = bay_length_y / 2;
-          // Access tower is 1 bay × bay_length_y. Its center is at:
-          //   segMid + perp * (halfWidth + bay_length_y/2)
-          // (halfWidth to reach the outer standard, plus bay_length_y/2 to reach
-          // the center of the access tower)
           const accessTowerOffset = halfWidth + bay_length_y / 2;
           const originX = segMidX + accessSeg.perpX * accessTowerOffset;
           const originY = segMidY + accessSeg.perpY * accessTowerOffset;
@@ -2192,22 +2193,25 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
           const radialX = Math.cos(angle0);
           const radialY = Math.sin(angle0);
 
-          // Determine access type
+          // Determine access type:
+          // - If labeled STAIRCASE → stairs (explicit)
+          // - Otherwise → respect staircase_type toggle (ladder/stairs)
+          // This lets the user switch between ladder and stairs via the UI toggle.
           const circLabel = circular_layout?.label;
           const isStairs =
-            circLabel === "STAIRCASE" ||
-            (circLabel !== "ACCESS" && staircase_type === "stairs");
+            circLabel === "STAIRCASE" || staircase_type === "stairs";
 
-          // Position the access tower OUTSIDE the circular scaffold:
-          // - Origin: at the midpoint of segment 0's outer face, plus an offset
-          //   so the tower sits just outside the outer ring
-          // - The midpoint of segment 0 is at angle = angle_per_segment / 2
+          // Position the access tower so its INNER face touches the OUTER
+          // ring of the circular scaffold (no gap — they share standards).
+          // - segMid is at radius_mm from origin (on the outer ring)
+          // - Tower inner face (local Y = -bayWidth/2) must align with outer ring
+          // - So tower center = segMid + radial × (bayWidth/2)
+          //   → inner face = tower center - radial × bayWidth/2 = segMid ✓
           const segMidAngle = layout.angle_per_segment_rad / 2;
           const segMidX = layout.radius_mm * Math.cos(segMidAngle);
           const segMidY = layout.radius_mm * Math.sin(segMidAngle);
-          // Access tower offset: halfWidth (to reach outer standard) + bay_width/2 (to reach tower center)
-          const accessTowerOffset = layout.bay_width_mm / 2 + layout.bay_width_mm / 2;
-          // Direction from origin to segMid (radial direction at segMidAngle)
+          // Tower center is one bay_width/2 outward from segMid (along radial)
+          const accessTowerOffset = layout.bay_width_mm / 2;
           const radialAtMidX = Math.cos(segMidAngle);
           const radialAtMidY = Math.sin(segMidAngle);
           const originX = segMidX + radialAtMidX * accessTowerOffset;
