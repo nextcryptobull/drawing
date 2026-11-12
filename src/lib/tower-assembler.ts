@@ -2152,25 +2152,52 @@ export function parseCircularRequest(text: string): {
   if (!diameterMatch) return null;
   const diameter_mm = Math.round(parseFloat(diameterMatch[1]) * 1000);
 
-  // Extract number of segments/bays
-  const segMatch =
-    cleaned.match(/(\d+)\s*(?:segments?|baies?|bays?)/);
-  if (!segMatch) return null;
-  const num_segments = parseInt(segMatch[1]);
-  if (num_segments < 3) return null; // need at least 3 to form a polygon
-
-  // Extract optional width (default 2000mm)
+  // Extract bay width (multiple forms):
+  //   "width 2.5m" / "largeur 2.5m"           → 2500mm
+  //   "2.5m bays" / "2.5m baies" / "2.5m bay"  → 2500mm  (measurement before "bays")
+  //   "bays 2.5m" / "baies 2.5m"               → 2500mm  (measurement after "bays")
+  // Must be applied BEFORE segment count (to disambiguate "2.5m bays" vs "12 bays").
   let bay_width_mm = 2000;
-  const widthMatch = cleaned.match(/(?:width|largeur)\s*(\d+\.?\d*)\s*m/);
-  if (widthMatch) {
-    bay_width_mm = Math.round(parseFloat(widthMatch[1]) * 1000);
+  const widthForms = [
+    /(?:width|largeur)\s*(\d+\.?\d*)\s*m/,
+    /(\d+\.?\d*)\s*m\s*(?:bays?|baies?|bays\s+(?:width|largeur))/,
+    /(?:bays?|baies?)\s*(\d+\.?\d*)\s*m/,
+  ];
+  for (const re of widthForms) {
+    const m = cleaned.match(re);
+    if (m) {
+      const w = Math.round(parseFloat(m[1]) * 1000);
+      if (w >= 500 && w <= 5000) {  // sanity check: 0.5m to 5m
+        bay_width_mm = w;
+        break;
+      }
+    }
   }
 
-  // Detect label
+  // Extract number of segments/bays. Accept many keywords:
+  //   segments / segment / sections / section / pieces / piece / posts / panels
+  //   baies / baie / bays / bay
+  //   façades / facade / faces / face
+  // Take the LAST match in the string (so "12 sections" wins over a stray
+  // "2" earlier). Also strip the bay-width measurement first so "2.5m bays"
+  // is not picked up as "2 bays".
+  const cleanedForSeg = cleaned
+    .replace(/(\d+\.?\d*)\s*m\s*(?:bays?|baies?)/g, "")  // remove "2.5m bays"
+    .replace(/(?:bays?|baies?)\s*(\d+\.?\d*)\s*m/g, ""); // remove "bays 2.5m"
+  const segMatches = Array.from(
+    cleanedForSeg.matchAll(/(\d+)\s*(?:segments?|sections?|pi[eè]ces?|posts?|panels?|fa[çc]ades?|faces?|baies?|bays?)/g)
+  );
+  if (segMatches.length === 0) return null;
+  // Use the last segment count found (most likely the intended one)
+  const lastSegMatch = segMatches[segMatches.length - 1];
+  const num_segments = parseInt(lastSegMatch[1]);
+  if (num_segments < 3) return null; // need at least 3 to form a polygon
+
+  // Detect label (tolerant of typos like "acceses", "acces", "aces")
   let label: string | undefined;
-  if (/accès|access/.test(cleaned)) label = "ACCESS";
-  else if (/staircase|escalier/.test(cleaned)) label = "STAIRCASE";
-  else if (/renforc|reinforc/.test(cleaned)) label = "REINFORCED";
+  if (/acc[èe]ss?e?s?|acc[èe]s|access\b|acceses|acces\b|aces\b/.test(cleaned)) label = "ACCESS";
+  else if (/staircase|staircases?|escalier|stairs?|estr[ie]er/.test(cleaned)) label = "STAIRCASE";
+  else if (/renforc|reinforc|renforce[ée]?|reinforce[de]?/.test(cleaned)) label = "REINFORCED";
 
   return { diameter_mm, num_segments, bay_width_mm, label };
 }

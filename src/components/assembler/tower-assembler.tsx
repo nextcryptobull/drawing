@@ -6,8 +6,11 @@ import { toast } from "sonner";
 import {
   ArrowRight,
   Boxes,
+  ChevronDown,
+  ChevronRight,
   Download,
   FileText,
+  HelpCircle,
   Layers,
   Loader2,
   Minus,
@@ -74,14 +77,17 @@ export function TowerAssembler() {
   const [removedParts, setRemovedParts] = useState<Set<string>>(new Set());
   const [requestText, setRequestText] = useState("");
   const [pathText, setPathText] = useState("");
+  const [showGuide, setShowGuide] = useState(false);
 
   /** Parse the natural-language scaffold request and apply it */
   function handleParseRequest() {
     const parsed = parseScaffoldRequest(requestText);
     if (!parsed) {
       toast.error("Could not parse request", {
-        description: "Format: '17 baies de 2.5x2x8m, 2 accès 2.5x2x8m, ...'  or  'en forme de L: 5 baies 2.5m, virage droite 90°, 3 baies 2.5m'",
+        description: "Examples: '17 baies de 2.5x2x8m, 2 accès 2.5x2x8m' · 'en forme de L: 5 baies 2.5m, virage droite 90°, 3 baies 2.5m' · 'Circular: diameter 10m, 12 segments, accès'. Click 'Syntax guide' below for the full reference.",
       });
+      // Auto-open the guide so the user can see the syntax reference immediately
+      setShowGuide(true);
       return;
     }
     // Set the dimension input from the parsed height + width
@@ -141,8 +147,9 @@ export function TowerAssembler() {
     const path = parseScaffoldPath(pathText);
     if (!path) {
       toast.error("Could not parse path", {
-        description: "Format: 'en forme de L: 5 baies 2.5m, virage droite 90°, 3 baies 2.5m' or '5 bays 2.5m, turn right 90, 3 bays 2.5m'",
+        description: "Examples: 'en forme de L: 5 baies 2.5m, virage droite 90°, 3 baies 2.5m' · '5 bays 2.5m, turn right 90, 3 bays 2.5m' · 'en forme de U: 4 baies 2.5m, virage gauche 90°, 3 baies 2.5m, virage gauche 90°, 4 baies 2.5m, accès'. Click 'Syntax guide' below for the full reference.",
       });
+      setShowGuide(true);
       return;
     }
     // Set a basic dimension input for height/width (path handles length)
@@ -394,7 +401,129 @@ export function TowerAssembler() {
                     </p>
                   </div>
 
-                      {/* Quick presets */}
+                  {/* ─── Syntax guide (collapsible) ─── */}
+                  <div className="rounded-md border border-border">
+                    <button
+                      type="button"
+                      onClick={() => setShowGuide((v) => !v)}
+                      className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs font-medium hover:bg-muted/50"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <HelpCircle className="size-3.5 text-primary" />
+                        Syntax guide &amp; examples
+                        <span className="text-muted-foreground">(click to expand)</span>
+                      </span>
+                      {showGuide ? (
+                        <ChevronDown className="size-3.5 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="size-3.5 text-muted-foreground" />
+                      )}
+                    </button>
+                    {showGuide && (
+                      <div className="space-y-3 border-t bg-muted/20 px-3 py-3 text-xs">
+                        {/* Linear */}
+                        <div>
+                          <div className="mb-1 font-semibold text-foreground">1. Linear scaffold (simple)</div>
+                          <p className="mb-1 text-muted-foreground">
+                            Plain dimensions <code className="rounded bg-background px-1">LxWxH</code> + unit:
+                          </p>
+                          <ul className="ml-4 list-disc space-y-0.5 text-muted-foreground">
+                            <li><code className="rounded bg-background px-1">2.5x2x6m</code> — 2.5m long, 2m wide, 6m tall</li>
+                            <li><code className="rounded bg-background px-1">2570x2000x6000mm</code> — same in millimeters</li>
+                            <li><code className="rounded bg-background px-1">3x2x8m</code> — default lifts of 2m</li>
+                          </ul>
+                        </div>
+
+                        {/* Multi-section */}
+                        <div>
+                          <div className="mb-1 font-semibold text-foreground">2. Multi-section (linear with sections)</div>
+                          <p className="mb-1 text-muted-foreground">
+                            Comma-separated sections, each with a count, label, and <code className="rounded bg-background px-1">LxWxH</code>:
+                          </p>
+                          <ul className="ml-4 list-disc space-y-0.5 text-muted-foreground">
+                            <li><code className="rounded bg-background px-1">17 baies de 2.5x2x8m</code> — 17 bays × 2.5m</li>
+                            <li><code className="rounded bg-background px-1">17 baies de 2.5x2x8m, 2 accès 2.5x2x8m</code> — adds 2 access bays</li>
+                            <li><code className="rounded bg-background px-1">10 baies 2.5x2x8m, 1 accès staircase 2.13x2x8m, 1 baie renforcée 2.5x2x8m</code></li>
+                          </ul>
+                          <p className="mt-1 text-muted-foreground">
+                            Keywords: <code className="rounded bg-background px-1">baies</code>,
+                            <code className="rounded bg-background px-1">accès</code>,
+                            <code className="rounded bg-background px-1">staircase</code>,
+                            <code className="rounded bg-background px-1">renforcée</code>,
+                            <code className="rounded bg-background px-1">porte</code>.
+                          </p>
+                        </div>
+
+                        {/* Angle / L / U */}
+                        <div>
+                          <div className="mb-1 font-semibold text-foreground">3. Angle scaffold (L / U / Z shape)</div>
+                          <p className="mb-1 text-muted-foreground">
+                            Sections separated by turns. Use either English or French keywords:
+                          </p>
+                          <ul className="ml-4 list-disc space-y-0.5 text-muted-foreground">
+                            <li><code className="rounded bg-background px-1">en forme de L: 5 baies 2.5m, virage droite 90°, 3 baies 2.5m</code></li>
+                            <li><code className="rounded bg-background px-1">5 bays 2.5m, turn right 90, 3 bays 2.5m</code> — same in English</li>
+                            <li><code className="rounded bg-background px-1">en forme de U: 4 baies 2.5m, virage gauche 90°, 3 baies 2.5m, virage gauche 90°, 4 baies 2.5m, accès</code></li>
+                          </ul>
+                          <p className="mt-1 text-muted-foreground">
+                            Turn keywords: <code className="rounded bg-background px-1">virage droite / gauche</code>,
+                            <code className="rounded bg-background px-1">turn right / left</code>. Add <code className="rounded bg-background px-1">accès</code> at the end for an access tower.
+                          </p>
+                        </div>
+
+                        {/* Circular — most important */}
+                        <div className="rounded border border-primary/30 bg-primary/5 p-2">
+                          <div className="mb-1 font-semibold text-foreground">4. Circular scaffold (around tanks/towers) ★</div>
+                          <p className="mb-1 text-muted-foreground">
+                            Build a circular ring of standards around a tank. Required: <strong>diameter</strong> + <strong>segment count</strong>. Optional: bay width + access label.
+                          </p>
+                          <ul className="ml-4 list-disc space-y-0.5 text-muted-foreground">
+                            <li><code className="rounded bg-background px-1">Circular: diameter 10m, 12 segments, accès</code> — ⌀10m, 12 segments, with ladder access</li>
+                            <li><code className="rounded bg-background px-1">Circular: diameter 40m, 2.5m bays, 12 sections, accès</code> — ⌀40m, 12 sections, 2.5m bay width</li>
+                            <li><code className="rounded bg-background px-1">circulaire diamètre 8m, 16 baies</code> — French version (no access)</li>
+                            <li><code className="rounded bg-background px-1">tank 8m diameter, 16 sections, staircase</code> — with stairs access</li>
+                            <li><code className="rounded bg-background px-1">round diameter 6m, 8 segments, accès</code></li>
+                          </ul>
+                          <p className="mt-1.5 text-muted-foreground">
+                            <strong>Keywords for diameter:</strong> <code className="rounded bg-background px-1">diameter</code>,
+                            <code className="rounded bg-background px-1">diamètre</code>.<br />
+                            <strong>Keywords for segment count:</strong> <code className="rounded bg-background px-1">segments</code>,
+                            <code className="rounded bg-background px-1">sections</code>,
+                            <code className="rounded bg-background px-1">baies</code>,
+                            <code className="rounded bg-background px-1">bays</code>,
+                            <code className="rounded bg-background px-1">pièces</code>,
+                            <code className="rounded bg-background px-1">faces</code>.<br />
+                            <strong>Bay width (optional, default 2m):</strong> <code className="rounded bg-background px-1">width 2.5m</code>,
+                            <code className="rounded bg-background px-1">largeur 2.5m</code>,
+                            <code className="rounded bg-background px-1">2.5m bays</code>,
+                            <code className="rounded bg-background px-1">bays 2.5m</code>.<br />
+                            <strong>Access (optional):</strong> <code className="rounded bg-background px-1">accès</code> (ladder),
+                            <code className="rounded bg-background px-1">staircase</code> (stairs),
+                            <code className="rounded bg-background px-1">renforcée</code> (reinforced).<br />
+                            <strong>Trigger keyword:</strong> <code className="rounded bg-background px-1">circular</code>,
+                            <code className="rounded bg-background px-1">circulaire</code>,
+                            <code className="rounded bg-background px-1">round</code>,
+                            <code className="rounded bg-background px-1">tank</code> (use one of these at the start).
+                          </p>
+                          <p className="mt-1.5 text-amber-700 dark:text-amber-400">
+                            ⚠ You need at least <strong>3 segments</strong> to form a polygon. For a 10m-diameter tank with 2.5m bay length, use ~12 segments (circumference π × 10 ≈ 31.4m → 31.4 / 2.5 ≈ 12.6).
+                          </p>
+                        </div>
+
+                        {/* Tip */}
+                        <div className="rounded border border-amber-500/30 bg-amber-500/5 p-2 text-amber-800 dark:text-amber-300">
+                          <strong>Tip:</strong> typos are tolerated for <code className="rounded bg-background px-1">acceses</code>,
+                          <code className="rounded bg-background px-1">acces</code>,
+                          <code className="rounded bg-background px-1">access</code>. Segment count accepts <code className="rounded bg-background px-1">sections</code>,
+                          <code className="rounded bg-background px-1">pièces</code>,
+                          <code className="rounded bg-background px-1">faces</code>,
+                          <code className="rounded bg-background px-1">panels</code> as well as <code className="rounded bg-background px-1">segments</code>.
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Quick presets */}
                       <div>
                         <Label className="mb-1.5 block text-xs text-muted-foreground">
                           Quick presets
