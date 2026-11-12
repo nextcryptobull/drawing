@@ -767,6 +767,11 @@ export function TowerAssembler() {
                             checked={result.config.include_braces}
                             onChange={(v) => updateFromConfig({ include_braces: v })}
                           />
+                          <ToggleRow
+                            label="Filler planks (gap fillers)"
+                            checked={result.config.include_fillers ?? false}
+                            onChange={(v) => updateFromConfig({ include_fillers: v })}
+                          />
 
                           {/* Divider */}
                           <div className="border-t pt-2" />

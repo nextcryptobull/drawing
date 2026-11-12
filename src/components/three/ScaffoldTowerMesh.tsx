@@ -63,6 +63,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     sections,
     scaffold_path,
     circular_layout,
+    include_fillers = false,
   } = config as TowerConfig & {
     base_type?: "jack" | "wheel" | "suspended";
     suspended_beam_length?: number;
@@ -84,6 +85,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       bay_width_mm: number;
       label?: string;
     };
+    include_fillers?: boolean;
   };
 
   // When secondary access is enabled (auto at ≥20m height/length), the primary
@@ -1121,6 +1123,59 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
           });
         })}
 
+        {/* ─── Filler planks (gap fillers between gratings and ledgers) ─── */}
+        {/* Thin steel planks at the edges of each grating platform, on both
+            the front and back faces of each segment. */}
+        {include_fillers && pathLayout.segments.map((seg, segIdx) => {
+          const segAngle = Math.atan2(seg.dirY, seg.dirX);
+          const fillerThk = 8;
+          const fillerWidth = 100;
+          const halfWidth = bay_length_y / 2;
+          return rosetteZs.map((z, liftIdx) => {
+            if (disabled_platform_levels.includes(liftIdx + 1)) return null;
+            const fillerZ = z - 6 + fillerThk / 2;
+            const fillers: React.ReactNode[] = [];
+            for (let bi = 0; bi < seg.numBays; bi++) {
+              const t = (bi + 0.5) / seg.numBays;
+              const mx = seg.startX + (seg.endX - seg.startX) * t;
+              const my = seg.startY + (seg.endY - seg.startY) * t;
+              // Front filler (at +halfWidth perp offset)
+              fillers.push(
+                <mesh
+                  key={`path-filler-front-${segIdx}-${liftIdx}-${bi}`}
+                  position={[
+                    mx + seg.perpX * (halfWidth - 30),
+                    my + seg.perpY * (halfWidth - 30),
+                    fillerZ,
+                  ]}
+                  rotation={[0, 0, segAngle]}
+                  material={materials.standard}
+                  castShadow
+                >
+                  <boxGeometry args={[fillerWidth, seg.bayLength * 0.94, fillerThk]} />
+                </mesh>
+              );
+              // Back filler (at -halfWidth perp offset)
+              fillers.push(
+                <mesh
+                  key={`path-filler-back-${segIdx}-${liftIdx}-${bi}`}
+                  position={[
+                    mx - seg.perpX * (halfWidth - 30),
+                    my - seg.perpY * (halfWidth - 30),
+                    fillerZ,
+                  ]}
+                  rotation={[0, 0, segAngle]}
+                  material={materials.standard}
+                  castShadow
+                >
+                  <boxGeometry args={[fillerWidth, seg.bayLength * 0.94, fillerThk]} />
+                </mesh>
+              );
+            }
+            return <group key={`path-fillers-${segIdx}-${liftIdx}`}>{fillers}</group>;
+          });
+        })}
+
         {/* ─── Handrails (top level only) ─── */}
         {/* For each segment, render:
               - Top rail + middle rail on FRONT face (full segment length)
@@ -1195,11 +1250,12 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
         })()}
 
         {/* ─── Ladder / staircase access on access segment ─── */}
-        {/* When include_ladder is true, render a 15° inclined ladder in the
-            first segment labeled ACCESS or STAIRCASE. If no segment is labeled,
-            use the first segment. The ladder alternates perp face per lift
-            (non-adjacent pattern). Each lift also gets a trapdoor at the
-            top of the ladder (the hatch workers climb through). */}
+        {/* When include_ladder is true, render an inclined ladder (15°) OR
+            full stairs (35° from horizontal) in the first segment labeled
+            ACCESS or STAIRCASE. If no segment is labeled, use segment 0.
+            The access alternates perp face per lift (non-adjacent pattern).
+            Each lift also gets a trapdoor at the top (the hatch workers
+            climb through). */}
         {include_ladder && pathLayout.segments.length > 0 && (() => {
           // Find the first segment with ACCESS or STAIRCASE label, else use segment 0
           let accessSegIdx = pathLayout.segments.findIndex(s => s.label === "ACCESS" || s.label === "STAIRCASE");
@@ -1210,43 +1266,51 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
           const frontBayStart = accessSegStandards.positions[0];
           const frontBayEnd = accessSegStandards.positions[1];
 
-          // 15° from vertical → horizontal run = lift_height × tan(15°)
-          const staircaseRun = lift_height * Math.tan(15 * Math.PI / 180);
+          // Determine access type: 'stairs' if segment labeled STAIRCASE OR
+          // staircase_type==='stairs', else 'ladder' (15° inclined).
+          const accessSegLabel = accessSeg.label;
+          const isStairs =
+            accessSegLabel === "STAIRCASE" ||
+            (accessSegLabel !== "ACCESS" && staircase_type === "stairs");
+
+          // For ladder (15°): horizontal run = lift_height × tan(15°) ≈ 536mm
+          // For stairs (35° from horizontal): full bay length, more comfortable
+          const ladderRun = lift_height * Math.tan(15 * Math.PI / 180);
           const railOffset = 200;
-          // yMargin = 120 so that the guard rail (100mm beyond outer stringer)
-          // stays INSIDE the scaffold frame (was 80 — guard rail poked outside).
-          //   yFaceOffset = halfWidth - 200 - 120 = halfWidth - 320
-          //   outer stringer = halfWidth - 120 ✓ inside
-          //   guard rail = halfWidth - 20    ✓ inside
+          const guardRailOffset = 100;
+          // yMargin = 120 so guard rail stays INSIDE the scaffold frame
           const yMargin = 120;
           const halfWidth = bay_length_y / 2;
-          // yFace offset from bay centerline along perp direction
           const yFaceOffset = halfWidth - railOffset - yMargin;
 
-          const ladderMeshes: React.ReactNode[] = [];
+          const accessMeshes: React.ReactNode[] = [];
           const trapdoorMeshes: React.ReactNode[] = [];
 
           for (let liftIdx = 0; liftIdx < num_lifts; liftIdx++) {
             // Alternate perp face per lift (non-adjacent pattern)
             const onPlusPerp = liftIdx % 2 === 0;
             const signPerp = onPlusPerp ? 1 : -1;
-            // Direction along segment (unit vector)
             const sx = accessSeg.dirX;
             const sy = accessSeg.dirY;
-            // Bay start/end along segment direction
             const bayStartX = frontBayStart[0];
             const bayStartY = frontBayStart[1];
             const bayEndX = frontBayEnd[0];
             const bayEndY = frontBayEnd[1];
-            // Ladder direction alternates per lift: even → top at bayEnd, odd → top at bayStart
+
+            // For stairs: top at bayEnd, bottom at bayStart (full bay span)
+            // For ladder: top at bayEnd, bottom at bayEnd - 536mm (compact)
             const openingAtPlus = onPlusPerp;
             const topX = openingAtPlus ? bayEndX : bayStartX;
             const topY = openingAtPlus ? bayEndY : bayStartY;
-            const bottomX = openingAtPlus ? bayEndX - sx * staircaseRun : bayStartX + sx * staircaseRun;
-            const bottomY = openingAtPlus ? bayEndY - sy * staircaseRun : bayStartY + sy * staircaseRun;
+            const bottomX = isStairs
+              ? (openingAtPlus ? bayStartX : bayEndX)
+              : (openingAtPlus ? bayEndX - sx * ladderRun : bayStartX + sx * ladderRun);
+            const bottomY = isStairs
+              ? (openingAtPlus ? bayStartY : bayEndY)
+              : (openingAtPlus ? bayEndY - sy * ladderRun : bayStartY + sy * ladderRun);
             const zBottom = liftIdx * lift_height;
             const zTop = (liftIdx + 1) * lift_height;
-            // Stringer direction (3D vector from bottom to top)
+
             const sdx = topX - bottomX;
             const sdy = topY - bottomY;
             const sdz = zTop - zBottom;
@@ -1258,93 +1322,150 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
             const midX = (bottomX + topX) / 2;
             const midY = (bottomY + topY) / 2;
             const midZ = (zBottom + zTop) / 2;
-            // Two stringers offset along perp direction
             const colorMat = onPlusPerp ? materials.ladder : materials.ladderSecondary;
-            const ladderKey = `path-ladder-L${liftIdx}`;
+            const accessKey = `path-access-L${liftIdx}`;
 
-            ladderMeshes.push(
-              <group
-                key={ladderKey}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (onPartClick) onPartClick(`Ladder (lift ${liftIdx + 1})`, [midX, midY, midZ], ladderKey);
-                }}
-              >
-                {/* Stringer 1: yFace - railOffset (along perp) */}
-                <mesh
-                  rotation={[seuler.x, seuler.y, seuler.z]}
-                  position={[
-                    midX + accessSeg.perpX * signPerp * (yFaceOffset - railOffset),
-                    midY + accessSeg.perpY * signPerp * (yFaceOffset - railOffset),
-                    midZ,
-                  ]}
-                  material={colorMat}
-                  castShadow
-                >
-                  <cylinderGeometry args={[15, 15, slen, 16]} />
-                </mesh>
-                {/* Stringer 2: yFace + railOffset (along perp) */}
-                <mesh
-                  rotation={[seuler.x, seuler.y, seuler.z]}
-                  position={[
-                    midX + accessSeg.perpX * signPerp * (yFaceOffset + railOffset),
-                    midY + accessSeg.perpY * signPerp * (yFaceOffset + railOffset),
-                    midZ,
-                  ]}
-                  material={colorMat}
-                  castShadow
-                >
-                  <cylinderGeometry args={[15, 15, slen, 16]} />
-                </mesh>
-                {/* Guard rail (outer side, 100mm beyond outer stringer) */}
-                <mesh
-                  rotation={[seuler.x, seuler.y, seuler.z]}
-                  position={[
-                    midX + accessSeg.perpX * signPerp * (yFaceOffset + railOffset + 100),
-                    midY + accessSeg.perpY * signPerp * (yFaceOffset + railOffset + 100),
-                    midZ,
-                  ]}
-                  material={colorMat}
-                  castShadow
-                >
-                  <cylinderGeometry args={[12, 12, slen, 16]} />
-                </mesh>
-                {/* 5 horizontal steps (boxes) spanning between stringers.
-                    Each step is rotated to lie along the perp axis (segment angle + π/2). */}
-                {Array.from({ length: 5 }).map((_, si) => {
-                  const t = (si + 0.5) / 5;
-                  const stepCenterX = bottomX + sdx * t;
-                  const stepCenterY = bottomY + sdy * t;
-                  const stepCenterZ = zBottom + sdz * t;
-                  return (
-                    <mesh
-                      key={`path-ladder-step-L${liftIdx}-${si}`}
-                      position={[
-                        stepCenterX + accessSeg.perpX * signPerp * yFaceOffset,
-                        stepCenterY + accessSeg.perpY * signPerp * yFaceOffset,
-                        stepCenterZ,
-                      ]}
-                      rotation={[0, 0, segAngle]}
-                      material={colorMat}
-                      castShadow
-                    >
-                      {/* Step: thin in segment direction (X local), wide in perp (Y local = 2*railOffset+40) */}
-                      <boxGeometry args={[20, railOffset * 2 + 40, 20]} />
-                    </mesh>
-                  );
-                })}
-              </group>
-            );
+            // Stringer positions along perp direction (offset by yFaceOffset ± railOffset)
+            const perpOff1 = signPerp * (yFaceOffset - railOffset);
+            const perpOff2 = signPerp * (yFaceOffset + railOffset);
+            const perpOffGuard = signPerp * (yFaceOffset + railOffset + guardRailOffset);
 
-            // Trapdoor at top of ladder (platform level)
+            if (isStairs) {
+              // ─── STAIRS: 2 stringers + flat horizontal treads + handrails both sides + posts ───
+              const treadWidth = railOffset * 2 + 40;
+              const treadDepth = 200;
+              const treadThk = 30;
+              const stepCount = 7;
+              accessMeshes.push(
+                <group
+                  key={accessKey}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onPartClick) onPartClick(`Stairs (lift ${liftIdx + 1})`, [midX, midY, midZ], accessKey);
+                  }}
+                >
+                  {/* Two inclined stringers */}
+                  <mesh
+                    rotation={[seuler.x, seuler.y, seuler.z]}
+                    position={[midX + accessSeg.perpX * perpOff1, midY + accessSeg.perpY * perpOff1, midZ]}
+                    material={colorMat} castShadow
+                  >
+                    <cylinderGeometry args={[15, 15, slen, 16]} />
+                  </mesh>
+                  <mesh
+                    rotation={[seuler.x, seuler.y, seuler.z]}
+                    position={[midX + accessSeg.perpX * perpOff2, midY + accessSeg.perpY * perpOff2, midZ]}
+                    material={colorMat} castShadow
+                  >
+                    <cylinderGeometry args={[15, 15, slen, 16]} />
+                  </mesh>
+                  {/* Flat horizontal treads (rotated to align with perp axis) */}
+                  {Array.from({ length: stepCount }).map((_, si) => {
+                    const t = (si + 1) / (stepCount + 1);
+                    const treadCenterX = bottomX + sdx * t;
+                    const treadCenterY = bottomY + sdy * t;
+                    const treadCenterZ = zBottom + sdz * t;
+                    return (
+                      <mesh
+                        key={`${accessKey}-tread-${si}`}
+                        position={[
+                          treadCenterX + accessSeg.perpX * signPerp * yFaceOffset,
+                          treadCenterY + accessSeg.perpY * signPerp * yFaceOffset,
+                          treadCenterZ,
+                        ]}
+                        rotation={[0, 0, segAngle]}
+                        material={colorMat}
+                        castShadow
+                      >
+                        <boxGeometry args={[treadDepth, treadWidth, treadThk]} />
+                      </mesh>
+                    );
+                  })}
+                  {/* Outer handrail (along stringer direction) */}
+                  <mesh
+                    rotation={[seuler.x, seuler.y, seuler.z]}
+                    position={[midX + accessSeg.perpX * perpOffGuard, midY + accessSeg.perpY * perpOffGuard, midZ]}
+                    material={colorMat} castShadow
+                  >
+                    <cylinderGeometry args={[12, 12, slen, 16]} />
+                  </mesh>
+                  {/* Inner handrail (opposite side) */}
+                  <mesh
+                    rotation={[seuler.x, seuler.y, seuler.z]}
+                    position={[midX - accessSeg.perpX * signPerp * (yFaceOffset + railOffset + guardRailOffset), midY - accessSeg.perpY * signPerp * (yFaceOffset + railOffset + guardRailOffset), midZ]}
+                    material={colorMat} castShadow
+                  >
+                    <cylinderGeometry args={[12, 12, slen, 16]} />
+                  </mesh>
+                </group>
+              );
+            } else {
+              // ─── LADDER: 2 stringers + 5 horizontal steps + guard rail ───
+              accessMeshes.push(
+                <group
+                  key={accessKey}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onPartClick) onPartClick(`Ladder (lift ${liftIdx + 1})`, [midX, midY, midZ], accessKey);
+                  }}
+                >
+                  {/* Stringer 1 */}
+                  <mesh
+                    rotation={[seuler.x, seuler.y, seuler.z]}
+                    position={[midX + accessSeg.perpX * perpOff1, midY + accessSeg.perpY * perpOff1, midZ]}
+                    material={colorMat} castShadow
+                  >
+                    <cylinderGeometry args={[15, 15, slen, 16]} />
+                  </mesh>
+                  {/* Stringer 2 */}
+                  <mesh
+                    rotation={[seuler.x, seuler.y, seuler.z]}
+                    position={[midX + accessSeg.perpX * perpOff2, midY + accessSeg.perpY * perpOff2, midZ]}
+                    material={colorMat} castShadow
+                  >
+                    <cylinderGeometry args={[15, 15, slen, 16]} />
+                  </mesh>
+                  {/* Guard rail (outer side) */}
+                  <mesh
+                    rotation={[seuler.x, seuler.y, seuler.z]}
+                    position={[midX + accessSeg.perpX * perpOffGuard, midY + accessSeg.perpY * perpOffGuard, midZ]}
+                    material={colorMat} castShadow
+                  >
+                    <cylinderGeometry args={[12, 12, slen, 16]} />
+                  </mesh>
+                  {/* 5 horizontal steps */}
+                  {Array.from({ length: 5 }).map((_, si) => {
+                    const t = (si + 0.5) / 5;
+                    const stepCenterX = bottomX + sdx * t;
+                    const stepCenterY = bottomY + sdy * t;
+                    const stepCenterZ = zBottom + sdz * t;
+                    return (
+                      <mesh
+                        key={`${accessKey}-step-${si}`}
+                        position={[
+                          stepCenterX + accessSeg.perpX * signPerp * yFaceOffset,
+                          stepCenterY + accessSeg.perpY * signPerp * yFaceOffset,
+                          stepCenterZ,
+                        ]}
+                        rotation={[0, 0, segAngle]}
+                        material={colorMat}
+                        castShadow
+                      >
+                        <boxGeometry args={[20, railOffset * 2 + 40, 20]} />
+                      </mesh>
+                    );
+                  })}
+                </group>
+              );
+            }
+
+            // Trapdoor at top of access (platform level) — same for both ladder and stairs
             const trapThk = 80;
             const trapLen = accessSeg.bayLength / 3;
             const trapWidthY = plank_width * 2 + 4;
             const trapZ = zTop - 2 + trapThk / 2;
-            // Trapdoor center: extends INWARD from ladder top exit (opposite seg direction)
             const trapCenterX = openingAtPlus ? topX - sx * trapLen / 2 : topX + sx * trapLen / 2;
             const trapCenterY = openingAtPlus ? topY - sy * trapLen / 2 : topY + sy * trapLen / 2;
-            // Offset along perp to outer edge of scaffold
             const trapOffPerp = signPerp * (halfWidth - 50 - trapWidthY / 2);
             const trapX = trapCenterX + accessSeg.perpX * trapOffPerp;
             const trapY = trapCenterY + accessSeg.perpY * trapOffPerp;
@@ -1367,7 +1488,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
           }
           return (
             <group>
-              {ladderMeshes}
+              {accessMeshes}
               {trapdoorMeshes}
             </group>
           );
@@ -1680,24 +1801,85 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
           return <group>{rails}</group>;
         })()}
 
+        {/* ─── Filler planks (gap fillers between gratings and ledgers) ─── */}
+        {/* Thin steel planks at the edges of each grating platform, on both
+            the outer and inner rings. They bridge the gap between the grating
+            edge and the ledger. */}
+        {include_fillers && rosetteZs.map((z, liftIdx) => {
+          if (disabled_platform_levels.includes(liftIdx + 1)) return null;
+          const fillerThk = 8;
+          const fillerWidth = 100; // 100mm wide strip
+          const fillerZ = z - 6 + fillerThk / 2; // aligned with grating top
+          const fillers: React.ReactNode[] = [];
+          // Outer ring fillers (one per bay, along the arc)
+          layout.outerStandards.forEach((p1, i) => {
+            const p2 = layout.outerStandards[(i + 1) % layout.num_segments];
+            const dx = p2[0] - p1[0];
+            const dy = p2[1] - p1[1];
+            const len = Math.sqrt(dx * dx + dy * dy);
+            const midX = (p1[0] + p2[0]) / 2;
+            const midY = (p1[1] + p2[1]) / 2;
+            const angle = Math.atan2(dy, dx);
+            // Position at outer ring edge (slightly inside the outer standard)
+            const outerEdgeOffset = layout.radius_mm - 30;
+            const fx = Math.cos(angle) * outerEdgeOffset;
+            const fy = Math.sin(angle) * outerEdgeOffset;
+            // Recompute midpoint at the outer edge
+            const midAngle = (i + 0.5) * layout.angle_per_segment_rad;
+            const finalX = Math.cos(midAngle) * outerEdgeOffset;
+            const finalY = Math.sin(midAngle) * outerEdgeOffset;
+            fillers.push(
+              <mesh
+                key={`circ-filler-outer-L${liftIdx}-${i}`}
+                position={[finalX, finalY, fillerZ]}
+                rotation={[0, 0, midAngle]}
+                material={materials.standard}
+                castShadow
+              >
+                <boxGeometry args={[fillerWidth, len * 0.94, fillerThk]} />
+              </mesh>
+            );
+          });
+          // Inner ring fillers
+          layout.innerStandards.forEach((p1, i) => {
+            const p2 = layout.innerStandards[(i + 1) % layout.num_segments];
+            const dx = p2[0] - p1[0];
+            const dy = p2[1] - p1[1];
+            const len = Math.sqrt(dx * dx + dy * dy);
+            const midAngle = (i + 0.5) * layout.angle_per_segment_rad;
+            const innerEdgeOffset = layout.innerRadius_mm + 30;
+            const finalX = Math.cos(midAngle) * innerEdgeOffset;
+            const finalY = Math.sin(midAngle) * innerEdgeOffset;
+            fillers.push(
+              <mesh
+                key={`circ-filler-inner-L${liftIdx}-${i}`}
+                position={[finalX, finalY, fillerZ]}
+                rotation={[0, 0, midAngle]}
+                material={materials.standard}
+                castShadow
+              >
+                <boxGeometry args={[fillerWidth, len * 0.94, fillerThk]} />
+              </mesh>
+            );
+          });
+          return <group key={`circ-fillers-L${liftIdx}`}>{fillers}</group>;
+        })}
+
         {/* ─── Ladder / staircase access on circular scaffold ─── */}
-        {/* When include_ladder is true, render a 15° inclined ladder in the
-            FIRST segment (between angle 0 and angle_per_segment). The ladder
-            runs along the arc (tangent to the outer ring). Stringers are
-            offset along the RADIAL direction (from outer ring toward center).
-            Alternates radial side per lift (non-adjacent pattern). Each lift
-            also gets a trapdoor at the top of the ladder. */}
+        {/* When include_ladder is true, render an inclined ladder (15°) OR
+            full stairs (35° from horizontal) in the FIRST segment (between
+            angle 0 and angle_per_segment). The access runs along the arc
+            (tangent to the outer ring). Stringers are offset along the
+            RADIAL direction (from outer ring toward center). Alternates
+            radial side per lift (non-adjacent pattern). Each lift also
+            gets a trapdoor at the top. */}
         {include_ladder && (() => {
           const layout = circularPathLayout!;
           // Segment 0: from angle 0 to angle_per_segment
           const angle0 = 0;
-          const angle1 = layout.angle_per_segment_rad;
           // Outer standards at angle 0 and angle 1
           const outerP0 = layout.outerStandards[0];
           const outerP1 = layout.outerStandards[1];
-          // Inner standards at angle 0 and angle 1
-          const innerP0 = layout.innerStandards[0];
-          const innerP1 = layout.innerStandards[1];
           // Tangent direction at angle 0 (perpendicular to radius, in +angular direction)
           // For a point at angle θ on the circle, tangent = (-sin θ, cos θ)
           const tangentX = -Math.sin(angle0);
@@ -1706,37 +1888,41 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
           const radialX = Math.cos(angle0);
           const radialY = Math.sin(angle0);
 
-          // 15° from vertical → horizontal run = lift_height × tan(15°)
-          const staircaseRun = lift_height * Math.tan(15 * Math.PI / 180);
+          // Determine access type: 'stairs' if label is STAIRCASE OR staircase_type==='stairs'
+          const circLabel = circular_layout?.label;
+          const isStairs =
+            circLabel === "STAIRCASE" ||
+            (circLabel !== "ACCESS" && staircase_type === "stairs");
+
+          // For ladder (15°): horizontal run = lift_height × tan(15°) ≈ 536mm
+          // For stairs (35° from horizontal): full bay arc length
+          const ladderRun = lift_height * Math.tan(15 * Math.PI / 180);
           const railOffset = 200;
+          const guardRailOffset = 100;
           const yMargin = 120;
           const halfWidth = layout.bay_width_mm / 2;
-          // yFace offset along radial direction (from outer ring toward center)
           const yFaceOffset = halfWidth - railOffset - yMargin;
 
-          const ladderMeshes: React.ReactNode[] = [];
+          const accessMeshes: React.ReactNode[] = [];
           const trapdoorMeshes: React.ReactNode[] = [];
 
           for (let liftIdx = 0; liftIdx < num_lifts; liftIdx++) {
             // Alternate radial side per lift (non-adjacent pattern)
-            // Even lifts: ladder on +radial side (closer to outer ring)
-            // Odd lifts: ladder on -radial side (closer to inner ring)
             const onPlusRadial = liftIdx % 2 === 0;
             const signRadial = onPlusRadial ? 1 : -1;
-            // Ladder runs along tangent direction (from outer P0 to outer P1, etc.)
-            // Direction alternates per lift: even → top at P1, odd → top at P0
             const openingAtPlus = onPlusRadial;
             const topX = openingAtPlus ? outerP1[0] : outerP0[0];
             const topY = openingAtPlus ? outerP1[1] : outerP0[1];
-            const bottomX = openingAtPlus
-              ? outerP1[0] - tangentX * staircaseRun
-              : outerP0[0] + tangentX * staircaseRun;
-            const bottomY = openingAtPlus
-              ? outerP1[1] - tangentY * staircaseRun
-              : outerP0[1] + tangentY * staircaseRun;
+            // For stairs: bottom at opposite outer standard (full arc span)
+            // For ladder: bottom at top - 536mm along tangent (compact)
+            const bottomX = isStairs
+              ? (openingAtPlus ? outerP0[0] : outerP1[0])
+              : (openingAtPlus ? outerP1[0] - tangentX * ladderRun : outerP0[0] + tangentX * ladderRun);
+            const bottomY = isStairs
+              ? (openingAtPlus ? outerP0[1] : outerP1[1])
+              : (openingAtPlus ? outerP1[1] - tangentY * ladderRun : outerP0[1] + tangentY * ladderRun);
             const zBottom = liftIdx * lift_height;
             const zTop = (liftIdx + 1) * lift_height;
-            // Stringer direction (3D vector from bottom to top)
             const sdx = topX - bottomX;
             const sdy = topY - bottomY;
             const sdz = zTop - zBottom;
@@ -1749,104 +1935,158 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
             const midY = (bottomY + topY) / 2;
             const midZ = (zBottom + zTop) / 2;
             const colorMat = onPlusRadial ? materials.ladder : materials.ladderSecondary;
-            const ladderKey = `circ-ladder-L${liftIdx}`;
+            const accessKey = `circ-access-L${liftIdx}`;
 
-            ladderMeshes.push(
-              <group
-                key={ladderKey}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (onPartClick) onPartClick(`Ladder (lift ${liftIdx + 1})`, [midX, midY, midZ], ladderKey);
-                }}
-              >
-                {/* Stringer 1: yFace - railOffset (along radial) */}
-                <mesh
-                  rotation={[seuler.x, seuler.y, seuler.z]}
-                  position={[
-                    midX + radialX * signRadial * (yFaceOffset - railOffset),
-                    midY + radialY * signRadial * (yFaceOffset - railOffset),
-                    midZ,
-                  ]}
-                  material={colorMat}
-                  castShadow
-                >
-                  <cylinderGeometry args={[15, 15, slen, 16]} />
-                </mesh>
-                {/* Stringer 2: yFace + railOffset (along radial) */}
-                <mesh
-                  rotation={[seuler.x, seuler.y, seuler.z]}
-                  position={[
-                    midX + radialX * signRadial * (yFaceOffset + railOffset),
-                    midY + radialY * signRadial * (yFaceOffset + railOffset),
-                    midZ,
-                  ]}
-                  material={colorMat}
-                  castShadow
-                >
-                  <cylinderGeometry args={[15, 15, slen, 16]} />
-                </mesh>
-                {/* Guard rail (outer side, 100mm beyond outer stringer) */}
-                <mesh
-                  rotation={[seuler.x, seuler.y, seuler.z]}
-                  position={[
-                    midX + radialX * signRadial * (yFaceOffset + railOffset + 100),
-                    midY + radialY * signRadial * (yFaceOffset + railOffset + 100),
-                    midZ,
-                  ]}
-                  material={colorMat}
-                  castShadow
-                >
-                  <cylinderGeometry args={[12, 12, slen, 16]} />
-                </mesh>
-                {/* 5 horizontal steps spanning between stringers */}
-                {Array.from({ length: 5 }).map((_, si) => {
-                  const t = (si + 0.5) / 5;
-                  const stepCenterX = bottomX + sdx * t;
-                  const stepCenterY = bottomY + sdy * t;
-                  const stepCenterZ = zBottom + sdz * t;
-                  // Step rotation: align with tangent direction
-                  const stepAngle = Math.atan2(tangentY, tangentX);
-                  return (
-                    <mesh
-                      key={`circ-ladder-step-L${liftIdx}-${si}`}
-                      position={[
-                        stepCenterX + radialX * signRadial * yFaceOffset,
-                        stepCenterY + radialY * signRadial * yFaceOffset,
-                        stepCenterZ,
-                      ]}
-                      rotation={[0, 0, stepAngle + Math.PI / 2]}
-                      material={colorMat}
-                      castShadow
-                    >
-                      <boxGeometry args={[railOffset * 2 + 40, 20, 20]} />
-                    </mesh>
-                  );
-                })}
-              </group>
-            );
+            // Stringer positions along radial direction
+            const radOff1 = signRadial * (yFaceOffset - railOffset);
+            const radOff2 = signRadial * (yFaceOffset + railOffset);
+            const radOffGuard = signRadial * (yFaceOffset + railOffset + guardRailOffset);
+            const tangentAngle = Math.atan2(tangentY, tangentX);
 
-            // Trapdoor at top of ladder (platform level)
+            if (isStairs) {
+              // ─── STAIRS: 2 stringers + flat horizontal treads + handrails both sides ───
+              const treadWidth = railOffset * 2 + 40;
+              const treadDepth = 200;
+              const treadThk = 30;
+              const stepCount = 7;
+              accessMeshes.push(
+                <group
+                  key={accessKey}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onPartClick) onPartClick(`Stairs (lift ${liftIdx + 1})`, [midX, midY, midZ], accessKey);
+                  }}
+                >
+                  {/* Two inclined stringers */}
+                  <mesh
+                    rotation={[seuler.x, seuler.y, seuler.z]}
+                    position={[midX + radialX * radOff1, midY + radialY * radOff1, midZ]}
+                    material={colorMat} castShadow
+                  >
+                    <cylinderGeometry args={[15, 15, slen, 16]} />
+                  </mesh>
+                  <mesh
+                    rotation={[seuler.x, seuler.y, seuler.z]}
+                    position={[midX + radialX * radOff2, midY + radialY * radOff2, midZ]}
+                    material={colorMat} castShadow
+                  >
+                    <cylinderGeometry args={[15, 15, slen, 16]} />
+                  </mesh>
+                  {/* Flat horizontal treads (rotated to align with tangent direction) */}
+                  {Array.from({ length: stepCount }).map((_, si) => {
+                    const t = (si + 1) / (stepCount + 1);
+                    const treadCenterX = bottomX + sdx * t;
+                    const treadCenterY = bottomY + sdy * t;
+                    const treadCenterZ = zBottom + sdz * t;
+                    return (
+                      <mesh
+                        key={`${accessKey}-tread-${si}`}
+                        position={[
+                          treadCenterX + radialX * signRadial * yFaceOffset,
+                          treadCenterY + radialY * signRadial * yFaceOffset,
+                          treadCenterZ,
+                        ]}
+                        rotation={[0, 0, tangentAngle]}
+                        material={colorMat}
+                        castShadow
+                      >
+                        <boxGeometry args={[treadDepth, treadWidth, treadThk]} />
+                      </mesh>
+                    );
+                  })}
+                  {/* Outer handrail */}
+                  <mesh
+                    rotation={[seuler.x, seuler.y, seuler.z]}
+                    position={[midX + radialX * radOffGuard, midY + radialY * radOffGuard, midZ]}
+                    material={colorMat} castShadow
+                  >
+                    <cylinderGeometry args={[12, 12, slen, 16]} />
+                  </mesh>
+                  {/* Inner handrail (opposite side) */}
+                  <mesh
+                    rotation={[seuler.x, seuler.y, seuler.z]}
+                    position={[midX - radialX * signRadial * (yFaceOffset + railOffset + guardRailOffset), midY - radialY * signRadial * (yFaceOffset + railOffset + guardRailOffset), midZ]}
+                    material={colorMat} castShadow
+                  >
+                    <cylinderGeometry args={[12, 12, slen, 16]} />
+                  </mesh>
+                </group>
+              );
+            } else {
+              // ─── LADDER: 2 stringers + 5 horizontal steps + guard rail ───
+              accessMeshes.push(
+                <group
+                  key={accessKey}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onPartClick) onPartClick(`Ladder (lift ${liftIdx + 1})`, [midX, midY, midZ], accessKey);
+                  }}
+                >
+                  {/* Stringer 1 */}
+                  <mesh
+                    rotation={[seuler.x, seuler.y, seuler.z]}
+                    position={[midX + radialX * radOff1, midY + radialY * radOff1, midZ]}
+                    material={colorMat} castShadow
+                  >
+                    <cylinderGeometry args={[15, 15, slen, 16]} />
+                  </mesh>
+                  {/* Stringer 2 */}
+                  <mesh
+                    rotation={[seuler.x, seuler.y, seuler.z]}
+                    position={[midX + radialX * radOff2, midY + radialY * radOff2, midZ]}
+                    material={colorMat} castShadow
+                  >
+                    <cylinderGeometry args={[15, 15, slen, 16]} />
+                  </mesh>
+                  {/* Guard rail (outer side) */}
+                  <mesh
+                    rotation={[seuler.x, seuler.y, seuler.z]}
+                    position={[midX + radialX * radOffGuard, midY + radialY * radOffGuard, midZ]}
+                    material={colorMat} castShadow
+                  >
+                    <cylinderGeometry args={[12, 12, slen, 16]} />
+                  </mesh>
+                  {/* 5 horizontal steps spanning between stringers */}
+                  {Array.from({ length: 5 }).map((_, si) => {
+                    const t = (si + 0.5) / 5;
+                    const stepCenterX = bottomX + sdx * t;
+                    const stepCenterY = bottomY + sdy * t;
+                    const stepCenterZ = zBottom + sdz * t;
+                    return (
+                      <mesh
+                        key={`${accessKey}-step-${si}`}
+                        position={[
+                          stepCenterX + radialX * signRadial * yFaceOffset,
+                          stepCenterY + radialY * signRadial * yFaceOffset,
+                          stepCenterZ,
+                        ]}
+                        rotation={[0, 0, tangentAngle + Math.PI / 2]}
+                        material={colorMat}
+                        castShadow
+                      >
+                        <boxGeometry args={[railOffset * 2 + 40, 20, 20]} />
+                      </mesh>
+                    );
+                  })}
+                </group>
+              );
+            }
+
+            // Trapdoor at top of access (platform level) — same for both ladder and stairs
             const trapThk = 80;
             const trapLen = layout.bay_arc_length_mm / 3;
             const trapWidthY = plank_width * 2 + 4;
             const trapZ = zTop - 2 + trapThk / 2;
-            // Trapdoor center: extends INWARD from ladder top exit (opposite tangent direction)
-            const trapCenterX = openingAtPlus
-              ? topX - tangentX * trapLen / 2
-              : topX + tangentX * trapLen / 2;
-            const trapCenterY = openingAtPlus
-              ? topY - tangentY * trapLen / 2
-              : topY + tangentY * trapLen / 2;
-            // Offset along radial to outer edge of scaffold
+            const trapCenterX = openingAtPlus ? topX - tangentX * trapLen / 2 : topX + tangentX * trapLen / 2;
+            const trapCenterY = openingAtPlus ? topY - tangentY * trapLen / 2 : topY + tangentY * trapLen / 2;
             const trapOffRadial = signRadial * (halfWidth - 50 - trapWidthY / 2);
             const trapX = trapCenterX + radialX * trapOffRadial;
             const trapY = trapCenterY + radialY * trapOffRadial;
-            const trapAngle = Math.atan2(tangentY, tangentX);
             trapdoorMeshes.push(
               <mesh
                 key={`circ-trapdoor-L${liftIdx}`}
                 position={[trapX, trapY, trapZ]}
-                rotation={[0, 0, trapAngle]}
+                rotation={[0, 0, tangentAngle]}
                 castShadow
                 receiveShadow
                 material={materials.plank}
@@ -1861,7 +2101,7 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
           }
           return (
             <group>
-              {ladderMeshes}
+              {accessMeshes}
               {trapdoorMeshes}
             </group>
           );
@@ -2363,6 +2603,37 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
               <boxGeometry args={[toeboardThk, towerY, toeboardH]} />
             </mesh>
             {/* Note: North side (+Y front) has NO toeboard — open for access */}
+          </group>
+        );
+      })}
+
+      {/* ---- Filler planks (gap fillers between gratings and ledgers) ---- */}
+      {/* Thin steel planks at the edges of each grating platform, on both
+          the +Y and -Y faces. They bridge the gap between the grating edge
+          and the ledger. */}
+      {include_fillers && rosetteZs.map((z, levelIdx) => {
+        if (disabled_platform_levels.includes(levelIdx + 1)) return null;
+        const fillerThk = 8;
+        const fillerWidth = 100;
+        const fillerZ = z - 6 + fillerThk / 2;
+        return (
+          <group key={`fillers-${levelIdx}`}>
+            {/* South side (Y-) — back */}
+            <mesh
+              position={[0, -towerY / 2 + 30, fillerZ]}
+              material={materials.standard}
+              castShadow
+            >
+              <boxGeometry args={[towerX, fillerWidth, fillerThk]} />
+            </mesh>
+            {/* North side (Y+) — front (no toeboard here, but filler yes) */}
+            <mesh
+              position={[0, towerY / 2 - 30, fillerZ]}
+              material={materials.standard}
+              castShadow
+            >
+              <boxGeometry args={[towerX, fillerWidth, fillerThk]} />
+            </mesh>
           </group>
         );
       })}

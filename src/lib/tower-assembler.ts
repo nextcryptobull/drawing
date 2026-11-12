@@ -78,6 +78,9 @@ export interface BayConfig {
     bay_width_mm: number;      // scaffold width (radial depth, e.g., 2000)
     label?: string;            // optional label (ACCESS / STAIRCASE / REINFORCED)
   };
+  /** Include filler planks (gap fillers between gratings and ledgers).
+   *  Renders thin steel planks at the edges of each grating platform. */
+  include_fillers?: boolean;
 }
 
 export interface PartsBom {
@@ -670,6 +673,7 @@ export function assembleTower(
     door_opening: overrides?.door_opening,
     scaffold_path: overrides?.scaffold_path,
     circular_layout: overrides?.circular_layout,
+    include_fillers: overrides?.include_fillers ?? false,
     plank_width: overrides?.plank_width ?? 320,
     suspended_beam_length: overrides?.suspended_beam_length ?? 4000,
     secondary_access,
@@ -1477,6 +1481,7 @@ export function assemblyToTowerConfig(result: AssemblyResult) {
     door_opening: result.config.door_opening,
     scaffold_path: result.config.scaffold_path,
     circular_layout: result.config.circular_layout,
+    include_fillers: result.config.include_fillers,
     plank_width: result.config.plank_width,
     suspended_beam_length: result.config.suspended_beam_length,
     secondary_access: result.config.secondary_access,
