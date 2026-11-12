@@ -107,10 +107,16 @@ export function TowerAssembler() {
   }
 
   // Parse and assemble as user types — applies overrides on top of parsed dims
+  // Returns null for empty/invalid input (no error thrown)
   const result = useMemo(() => {
-    const dims = parseDimensions(input);
-    if (!dims) return null;
-    return assembleTower(dims, overrides);
+    if (!input.trim()) return null;
+    try {
+      const dims = parseDimensions(input);
+      if (!dims) return null;
+      return assembleTower(dims, overrides);
+    } catch {
+      return null;
+    }
   }, [input, overrides]);
 
   // Generate the TowerConfig for the 3D viewer (null if input invalid)
