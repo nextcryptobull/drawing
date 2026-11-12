@@ -108,6 +108,17 @@ export async function generateBomPdf(result: AssemblyResult): Promise<void> {
   doc.text("Bill of Materials — Baku, Azerbaijan", margin, cursorY);
   cursorY += 5;
 
+  // ─── DISCLAIMER BANNER: NOT FOR DETAILED DESIGN ───
+  doc.setFillColor(255, 243, 205); // amber-100
+  doc.setDrawColor(220, 160, 30);   // amber-600
+  doc.setLineWidth(0.4);
+  doc.roundedRect(margin, cursorY, pageWidth - 2 * margin, 7, 1.2, 1.2, "FD");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(140, 80, 10);    // amber-800
+  doc.text("⚠  NOT FOR DETAILED DESIGN  —  Quick field estimate (±10% tolerance)", margin + 3, cursorY + 5);
+  cursorY += 10;
+
   // Date + generated timestamp (right-aligned)
   const now = new Date();
   const timestamp = formatDateTime(now);
@@ -141,6 +152,7 @@ export async function generateBomPdf(result: AssemblyResult): Promise<void> {
     ["Secondary access", config.secondary_access ? "Yes (auto)" : "No"],
     ["Total parts", `${bom.total_parts} pcs`],
     ["Total weight", `${bom.estimated_weight_kg.toLocaleString()} kg (${(bom.estimated_weight_kg / 1000).toFixed(2)} t)`],
+    ["Tolerance (±10%)", `${Math.round(bom.estimated_weight_kg * 0.9).toLocaleString()} – ${Math.round(bom.estimated_weight_kg * 1.1).toLocaleString()} kg`],
   ];
 
   autoTable(doc, {
@@ -190,14 +202,14 @@ export async function generateBomPdf(result: AssemblyResult): Promise<void> {
     },
     margin: { left: margin, right: margin },
     didDrawPage: () => {
-      // Page footer: page number + "Madacan" branding on every page
+      // Page footer: page number + "Madacan" branding + disclaimer on every page
       const page = doc.getNumberOfPages();
       const current = doc.getCurrentPageInfo().pageNumber;
       doc.setFont("helvetica", "normal");
       doc.setFontSize(8);
       doc.setTextColor(140, 140, 140);
       doc.text(
-        `Madacan — Scaffold Tower BOM  ·  Page ${current} of ${page}`,
+        `Madacan — Scaffold Tower BOM  ·  Page ${current} of ${page}  ·  ⚠ Not for detailed design (±10%)`,
         pageWidth / 2,
         pageHeight - 8,
         { align: "center" },
@@ -228,6 +240,28 @@ export async function generateBomPdf(result: AssemblyResult): Promise<void> {
     cursorY,
     { align: "right" },
   );
+  cursorY += 6;
+
+  // Tolerance range line
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(120, 120, 120);
+  doc.text(
+    `Tolerance ±10%: ${Math.round(bom.estimated_weight_kg * 0.9).toLocaleString()} – ${Math.round(bom.estimated_weight_kg * 1.1).toLocaleString()} kg  (${((bom.estimated_weight_kg * 0.9) / 1000).toFixed(2)} – ${((bom.estimated_weight_kg * 1.1) / 1000).toFixed(2)} t)`,
+    margin,
+    cursorY,
+  );
+  cursorY += 5;
+
+  // Disclaimer on totals page
+  doc.setFillColor(255, 243, 205);
+  doc.setDrawColor(220, 160, 30);
+  doc.setLineWidth(0.4);
+  doc.roundedRect(margin, cursorY, pageWidth - 2 * margin, 6, 1.2, 1.2, "FD");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(140, 80, 10);
+  doc.text("⚠  NOT FOR DETAILED DESIGN  —  Quick field estimate ±10%  —  Madacan", margin + 3, cursorY + 4);
 
   // Reset page-number footer (the didDrawPage callback above handles
   // footers on pages produced by autotable, but if we just added a new page
@@ -238,7 +272,7 @@ export async function generateBomPdf(result: AssemblyResult): Promise<void> {
   doc.setFontSize(8);
   doc.setTextColor(140, 140, 140);
   doc.text(
-    `Madacan — Scaffold Tower BOM  ·  Page ${current} of ${total}`,
+    `Madacan — Scaffold Tower BOM  ·  Page ${current} of ${total}  ·  ⚠ Not for detailed design (±10%)`,
     pageWidth / 2,
     pageHeight - 8,
     { align: "center" },

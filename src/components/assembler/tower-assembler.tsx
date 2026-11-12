@@ -260,9 +260,15 @@ export function TowerAssembler() {
             Scaffold Tower BOM Estimator
           </h1>
         </div>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Quick field BOM &amp; tonnage — not for drawing details
-        </p>
+        {/* Prominent disclaimer banner — NOT FOR DETAILED DESIGN */}
+        <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1">
+          <span className="text-[11px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-500">
+            ⚠ Not for detailed design
+          </span>
+          <span className="text-[11px] text-amber-600/80 dark:text-amber-400/80">
+            · Quick field estimate ±10%
+          </span>
+        </div>
         {removedParts.size > 0 && (
           <button
             type="button"
@@ -481,7 +487,7 @@ export function TowerAssembler() {
                               hint={`${result.actualDimensions.height}mm total`}
                             />
                             <StatBox
-                              label="Est. weight"
+                              label="Est. weight (±10%)"
                               value={`${(result.bom.estimated_weight_kg / 1000).toFixed(2)} t`}
                               hint={`${result.bom.estimated_weight_kg.toLocaleString()} kg · ${result.bom.total_parts} parts`}
                             />
@@ -960,9 +966,15 @@ export function TowerAssembler() {
                                   </td>
                                 </tr>
                                 <tr>
-                                  <td className="pb-2" colSpan={3}>Tonnage</td>
+                                  <td className="pb-2" colSpan={3}>Tonnage (±10%)</td>
                                   <td className="pb-2 text-right font-mono text-primary">
                                     {(result.bom.estimated_weight_kg / 1000).toFixed(2)} t
+                                  </td>
+                                </tr>
+                                <tr className="text-xs text-muted-foreground">
+                                  <td className="pb-2" colSpan={3}>Range: {((result.bom.estimated_weight_kg * 0.9) / 1000).toFixed(2)} – {((result.bom.estimated_weight_kg * 1.1) / 1000).toFixed(2)} t</td>
+                                  <td className="pb-2 text-right font-mono">
+                                    {(Math.round(result.bom.estimated_weight_kg * 0.9)).toLocaleString()} – {(Math.round(result.bom.estimated_weight_kg * 1.1)).toLocaleString()} kg
                                   </td>
                                 </tr>
                               </tfoot>
