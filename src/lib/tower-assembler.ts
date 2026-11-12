@@ -1572,24 +1572,55 @@ export function parseScaffoldRequest(text: string): ParsedScaffoldRequest | null
   if (hasAngleKeyword) {
     const path = parseScaffoldPath(text);
     if (path && path.length > 0) {
-      // Build a ParsedScaffoldRequest that carries the path as an override.
-      // We synthesize a single "section" so the existing flow accepts it;
-      // the actual geometry comes from scaffold_path.
+      // Detect access / staircase / reinforced keywords anywhere in the input.
+      // These turn on ladders/stairs in the first segment of the path.
+      const hasAccess = /acc\u00e8s|access/.test(cleaned);
+      const hasStaircase = /staircase|straircase|escalier|stairs/.test(cleaned);
+      const hasReinforced = /renforc|reinforc/.test(cleaned);
       const totalBays = path.reduce((s, p) => s + p.bays, 0);
       const firstBayLen = path[0].bay_length;
+      // Only apply auto-labels when the path parser didn't already label
+      // segments (i.e., the user didn't put keywords on each segment).
+      const anyLabeled = path.some(p => p.label);
+      if (!anyLabeled) {
+        // When user specifies "renforcée", label the longest segment as reinforced.
+        if (hasReinforced) {
+          let maxIdx = 0;
+          for (let i = 1; i < path.length; i++) {
+            if (path[i].bays * path[i].bay_length > path[maxIdx].bays * path[maxIdx].bay_length) {
+              maxIdx = i;
+            }
+          }
+          path[maxIdx].label = "REINFORCED";
+        }
+        // When user specifies "accès staircase", label first segment as STAIRCASE.
+        // For "accès" alone, label first segment as ACCESS (ladder access).
+        if (hasStaircase) {
+          path[0].label = "STAIRCASE";
+        } else if (hasAccess) {
+          path[0].label = "ACCESS";
+        }
+      }
+      // include_ladder is true if ANY segment has ACCESS or STAIRCASE label,
+      // OR if the user explicitly typed access/staircase keywords.
+      const pathHasAccess = path.some(p => p.label === "ACCESS" || p.label === "STAIRCASE");
+      const includeLadder = hasAccess || hasStaircase || pathHasAccess;
+      const stairsType = hasStaircase || path.some(p => p.label === "STAIRCASE") ? "stairs" : "ladder";
       return {
         sections: [{ bays: totalBays, bay_length: firstBayLen, label: "ANGLE" }],
-        height: 6000, // default 6m tall when user gives only a path
-        width: 2000,  // default 2m wide
+        height: 6000,
+        width: 2000,
         overrides: {
           scaffold_path: path,
-          include_ladder: false,
+          include_ladder: includeLadder,
           secondary_access: false,
           staircase_tower: false,
-          staircase_type: "ladder",
+          staircase_type: stairsType,
         },
         parseWarnings: [
-          `Angle scaffold detected: ${path.length} segments, ${totalBays} bays total.`,
+          `Angle scaffold detected: ${path.length} segments, ${totalBays} bays total` +
+            (includeLadder ? `; access ${stairsType === "stairs" ? "(stairs)" : "(ladder)"} on first labeled segment` : "") +
+            (hasReinforced ? "; reinforced on longest segment" : ""),
         ],
       };
     }
@@ -1905,7 +1936,7 @@ export function parseScaffoldPath(text: string): Array<{
       continue;
     }
 
-    // Detect label
+    // Detect label per segment (optional — overrides auto-detection from full text)
     let label: string | undefined;
     if (/accès|access/.test(part)) label = "ACCESS";
     else if (/staircase|escalier/.test(part)) label = "STAIRCASE";

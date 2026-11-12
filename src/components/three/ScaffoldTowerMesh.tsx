@@ -1180,6 +1180,180 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
           });
           return <group>{rails}</group>;
         })()}
+
+        {/* ─── Ladder / staircase access on access segment ─── */}
+        {/* When include_ladder is true, render a 15° inclined ladder in the
+            first segment labeled ACCESS or STAIRCASE. If no segment is labeled,
+            use the first segment. The ladder alternates perp face per lift
+            (non-adjacent pattern). Each lift also gets a trapdoor at the
+            top of the ladder (the hatch workers climb through). */}
+        {include_ladder && pathLayout.segments.length > 0 && (() => {
+          // Find the first segment with ACCESS or STAIRCASE label, else use segment 0
+          let accessSegIdx = pathLayout.segments.findIndex(s => s.label === "ACCESS" || s.label === "STAIRCASE");
+          if (accessSegIdx < 0) accessSegIdx = 0;
+          const accessSeg = pathLayout.segments[accessSegIdx];
+          const accessSegStandards = pathLayout.segmentStandards[accessSegIdx];
+          const segAngle = Math.atan2(accessSeg.dirY, accessSeg.dirX);
+          const frontBayStart = accessSegStandards.positions[0];
+          const frontBayEnd = accessSegStandards.positions[1];
+
+          // 15° from vertical → horizontal run = lift_height × tan(15°)
+          const staircaseRun = lift_height * Math.tan(15 * Math.PI / 180);
+          const railOffset = 200;
+          const yMargin = 80;
+          const halfWidth = bay_length_y / 2;
+          // yFace offset from bay centerline along perp direction
+          const yFaceOffset = halfWidth - railOffset - yMargin;
+
+          const ladderMeshes: React.ReactNode[] = [];
+          const trapdoorMeshes: React.ReactNode[] = [];
+
+          for (let liftIdx = 0; liftIdx < num_lifts; liftIdx++) {
+            // Alternate perp face per lift (non-adjacent pattern)
+            const onPlusPerp = liftIdx % 2 === 0;
+            const signPerp = onPlusPerp ? 1 : -1;
+            // Direction along segment (unit vector)
+            const sx = accessSeg.dirX;
+            const sy = accessSeg.dirY;
+            // Bay start/end along segment direction
+            const bayStartX = frontBayStart[0];
+            const bayStartY = frontBayStart[1];
+            const bayEndX = frontBayEnd[0];
+            const bayEndY = frontBayEnd[1];
+            // Ladder direction alternates per lift: even → top at bayEnd, odd → top at bayStart
+            const openingAtPlus = onPlusPerp;
+            const topX = openingAtPlus ? bayEndX : bayStartX;
+            const topY = openingAtPlus ? bayEndY : bayStartY;
+            const bottomX = openingAtPlus ? bayEndX - sx * staircaseRun : bayStartX + sx * staircaseRun;
+            const bottomY = openingAtPlus ? bayEndY - sy * staircaseRun : bayStartY + sy * staircaseRun;
+            const zBottom = liftIdx * lift_height;
+            const zTop = (liftIdx + 1) * lift_height;
+            // Stringer direction (3D vector from bottom to top)
+            const sdx = topX - bottomX;
+            const sdy = topY - bottomY;
+            const sdz = zTop - zBottom;
+            const slen = Math.sqrt(sdx * sdx + sdy * sdy + sdz * sdz);
+            const sdir = new THREE.Vector3(sdx, sdy, sdz).normalize();
+            const yAxis3 = new THREE.Vector3(0, 1, 0);
+            const squat = new THREE.Quaternion().setFromUnitVectors(yAxis3, sdir);
+            const seuler = new THREE.Euler().setFromQuaternion(squat);
+            const midX = (bottomX + topX) / 2;
+            const midY = (bottomY + topY) / 2;
+            const midZ = (zBottom + zTop) / 2;
+            // Two stringers offset along perp direction
+            const colorMat = onPlusPerp ? materials.ladder : materials.ladderSecondary;
+            const ladderKey = `path-ladder-L${liftIdx}`;
+
+            ladderMeshes.push(
+              <group
+                key={ladderKey}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onPartClick) onPartClick(`Ladder (lift ${liftIdx + 1})`, [midX, midY, midZ], ladderKey);
+                }}
+              >
+                {/* Stringer 1: yFace - railOffset (along perp) */}
+                <mesh
+                  rotation={[seuler.x, seuler.y, seuler.z]}
+                  position={[
+                    midX + accessSeg.perpX * signPerp * (yFaceOffset - railOffset),
+                    midY + accessSeg.perpY * signPerp * (yFaceOffset - railOffset),
+                    midZ,
+                  ]}
+                  material={colorMat}
+                  castShadow
+                >
+                  <cylinderGeometry args={[15, 15, slen, 16]} />
+                </mesh>
+                {/* Stringer 2: yFace + railOffset (along perp) */}
+                <mesh
+                  rotation={[seuler.x, seuler.y, seuler.z]}
+                  position={[
+                    midX + accessSeg.perpX * signPerp * (yFaceOffset + railOffset),
+                    midY + accessSeg.perpY * signPerp * (yFaceOffset + railOffset),
+                    midZ,
+                  ]}
+                  material={colorMat}
+                  castShadow
+                >
+                  <cylinderGeometry args={[15, 15, slen, 16]} />
+                </mesh>
+                {/* Guard rail (outer side, 100mm beyond outer stringer) */}
+                <mesh
+                  rotation={[seuler.x, seuler.y, seuler.z]}
+                  position={[
+                    midX + accessSeg.perpX * signPerp * (yFaceOffset + railOffset + 100),
+                    midY + accessSeg.perpY * signPerp * (yFaceOffset + railOffset + 100),
+                    midZ,
+                  ]}
+                  material={colorMat}
+                  castShadow
+                >
+                  <cylinderGeometry args={[12, 12, slen, 16]} />
+                </mesh>
+                {/* 5 horizontal steps (boxes) spanning between stringers.
+                    Each step is rotated to lie along the perp axis (segment angle + π/2). */}
+                {Array.from({ length: 5 }).map((_, si) => {
+                  const t = (si + 0.5) / 5;
+                  const stepCenterX = bottomX + sdx * t;
+                  const stepCenterY = bottomY + sdy * t;
+                  const stepCenterZ = zBottom + sdz * t;
+                  return (
+                    <mesh
+                      key={`path-ladder-step-L${liftIdx}-${si}`}
+                      position={[
+                        stepCenterX + accessSeg.perpX * signPerp * yFaceOffset,
+                        stepCenterY + accessSeg.perpY * signPerp * yFaceOffset,
+                        stepCenterZ,
+                      ]}
+                      rotation={[0, 0, segAngle]}
+                      material={colorMat}
+                      castShadow
+                    >
+                      {/* Step: thin in segment direction (X local), wide in perp (Y local = 2*railOffset+40) */}
+                      <boxGeometry args={[20, railOffset * 2 + 40, 20]} />
+                    </mesh>
+                  );
+                })}
+              </group>
+            );
+
+            // Trapdoor at top of ladder (platform level)
+            const trapThk = 80;
+            const trapLen = accessSeg.bayLength / 3;
+            const trapWidthY = plank_width * 2 + 4;
+            const trapZ = zTop - 2 + trapThk / 2;
+            // Trapdoor center: extends INWARD from ladder top exit (opposite seg direction)
+            const trapCenterX = openingAtPlus ? topX - sx * trapLen / 2 : topX + sx * trapLen / 2;
+            const trapCenterY = openingAtPlus ? topY - sy * trapLen / 2 : topY + sy * trapLen / 2;
+            // Offset along perp to outer edge of scaffold
+            const trapOffPerp = signPerp * (halfWidth - 50 - trapWidthY / 2);
+            const trapX = trapCenterX + accessSeg.perpX * trapOffPerp;
+            const trapY = trapCenterY + accessSeg.perpY * trapOffPerp;
+            trapdoorMeshes.push(
+              <mesh
+                key={`path-trapdoor-L${liftIdx}`}
+                position={[trapX, trapY, trapZ]}
+                rotation={[0, 0, segAngle]}
+                castShadow
+                receiveShadow
+                material={materials.plank}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onPartClick) onPartClick(`Trap door L${liftIdx + 1}`, [trapX, trapY, trapZ], `path-trapdoor-L${liftIdx}`);
+                }}
+              >
+                <boxGeometry args={[trapLen, trapWidthY, trapThk]} />
+              </mesh>
+            );
+          }
+          return (
+            <group>
+              {ladderMeshes}
+              {trapdoorMeshes}
+            </group>
+          );
+        })()}
       </group>
     );
   };
