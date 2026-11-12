@@ -117,13 +117,18 @@ export function TowerViewer({ config, onRemovePart, removedParts }: { config: To
     const t = debounced;
     const sections = (t as { sections?: Array<{ bays: number; bay_length: number }> }).sections;
     const scaffoldPath = (t as { scaffold_path?: Array<{ bays: number; bay_length: number; turn_angle: number }> }).scaffold_path;
+    const circularLayout = (t as { circular_layout?: { diameter_mm: number; num_segments: number; bay_width_mm: number } }).circular_layout;
     const bayLengthY = t.bay_length_y || 2000;
 
     // For angle scaffolds (L/U-shape), the path extends in BOTH X and Y.
     // We compute the bounding box of all path segments to get the full extent.
     let towerX: number;
     let towerY: number;
-    if (scaffoldPath && scaffoldPath.length > 0) {
+    if (circularLayout) {
+      // Circular scaffold: diameter = outer diameter (includes both rings)
+      towerX = circularLayout.diameter_mm;
+      towerY = circularLayout.diameter_mm;
+    } else if (scaffoldPath && scaffoldPath.length > 0) {
       // Simulate the path to get min/max X,Y extents
       let curX = 0, curY = 0, curAngleDeg = 0;
       let minX = 0, maxX = 0, minY = 0, maxY = 0;

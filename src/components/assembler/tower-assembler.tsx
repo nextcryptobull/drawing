@@ -90,9 +90,10 @@ export function TowerAssembler() {
     const w = (parsed.width / 1000).toString();
     setInput(`1x${w}x${h}m`);
     // Merge sections into overrides (sections is a separate field in the parsed result).
-    // Clear scaffold_path when the new request is NOT an angle scaffold, so
-    // leftover L/U-shape geometry from a previous parse doesn't persist.
+    // Clear scaffold_path / circular_layout when the new request doesn't use them,
+    // so leftover geometry from a previous parse doesn't persist.
     const isAngleRequest = !!(parsed.overrides.scaffold_path && parsed.overrides.scaffold_path.length > 0);
+    const isCircularRequest = !!parsed.overrides.circular_layout;
     setOverrides({
       ...parsed.overrides,
       sections: parsed.sections,
@@ -100,6 +101,8 @@ export function TowerAssembler() {
       staircase_type: parsed.overrides.staircase_type ?? "ladder",
       // If this isn't an angle request, drop any stale scaffold_path.
       ...(isAngleRequest ? {} : { scaffold_path: undefined }),
+      // If this isn't a circular request, drop any stale circular_layout.
+      ...(isCircularRequest ? {} : { circular_layout: undefined }),
     });
     if (parsed.parseWarnings.length > 0) {
       toast.success("Request parsed with warnings", {
@@ -147,8 +150,9 @@ export function TowerAssembler() {
     setOverrides((prev) => ({
       ...prev,
       scaffold_path: path,
-      // Clear sections so the synthesized section doesn't conflict with the path
+      // Clear sections and circular_layout so they don't conflict with the path
       sections: undefined,
+      circular_layout: undefined,
       include_ladder: false,
       secondary_access: false,
       staircase_tower: false,
@@ -350,7 +354,8 @@ export function TowerAssembler() {
                       <code className="rounded bg-muted px-1">staircase</code>,
                       <code className="rounded bg-muted px-1">renforcée</code>,
                       <code className="rounded bg-muted px-1">porte</code> (door),
-                      <code className="rounded bg-muted px-1">L/U-shape</code> (angle — auto-detected)
+                      <code className="rounded bg-muted px-1">L/U-shape</code> (angle),
+                      <code className="rounded bg-muted px-1">circular</code> (around tanks)
                     </p>
                   </div>
 
@@ -789,47 +794,74 @@ export function TowerAssembler() {
 
                           {/* Ladder toggle (primary, yellow, inside access bay) */}
                           <ToggleRow
-                            label="Ladder (access side)"
+                            label="Access 1 (primary, yellow)"
                             checked={result.config.include_ladder}
                             onChange={(v) => updateFromConfig({ include_ladder: v })}
                           />
 
-                          {/* Staircase type toggle: Stairs (flat treads) / Ladder (15° inclined) */}
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs text-muted-foreground">Staircase type</span>
-                            <div className="flex gap-1">
-                              <Button
-                                variant={result.config.staircase_type === "stairs" ? "default" : "outline"}
-                                size="sm"
-                                className="h-7 px-2 text-xs"
-                                onClick={() => updateFromConfig({ staircase_type: "stairs" })}
-                              >
-                                Stairs
-                              </Button>
-                              <Button
-                                variant={result.config.staircase_type === "ladder" ? "default" : "outline"}
-                                size="sm"
-                                className="h-7 px-2 text-xs"
-                                onClick={() => updateFromConfig({ staircase_type: "ladder" })}
-                              >
-                                Ladder
-                              </Button>
+                          {/* Staircase type for Access 1: Stairs (flat treads) / Ladder (15° inclined) */}
+                          {result.config.include_ladder && (
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs text-muted-foreground">Access 1 type</span>
+                              <div className="flex gap-1">
+                                <Button
+                                  variant={result.config.staircase_type === "stairs" ? "default" : "outline"}
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() => updateFromConfig({ staircase_type: "stairs" })}
+                                >
+                                  Stairs
+                                </Button>
+                                <Button
+                                  variant={result.config.staircase_type === "ladder" ? "default" : "outline"}
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() => updateFromConfig({ staircase_type: "ladder" })}
+                                >
+                                  Ladder
+                                </Button>
+                              </div>
                             </div>
-                          </div>
+                          )}
 
                           {/* Secondary access toggle (auto at ≥20m height/length) */}
                           <ToggleRow
                             label={(() => {
                               const h = result.config.num_lifts * result.config.lift_height;
                               const len = result.config.bays_x * result.config.bay_length_x;
-                              if (h >= 20000 && len >= 20000) return "Secondary access (auto: height+length ≥20m)";
-                              if (h >= 20000) return "Secondary access (auto: height ≥20m)";
-                              if (len >= 20000) return "Secondary access (auto: length ≥20m)";
-                              return "Secondary access (escape ladder)";
+                              if (h >= 20000 && len >= 20000) return "Access 2 (auto: height+length ≥20m)";
+                              if (h >= 20000) return "Access 2 (auto: height ≥20m)";
+                              if (len >= 20000) return "Access 2 (auto: length ≥20m)";
+                              return "Access 2 (escape, orange)";
                             })()}
                             checked={result.config.secondary_access}
                             onChange={(v) => updateFromConfig({ secondary_access: v })}
                           />
+
+                          {/* Staircase type for Access 2 — independent of Access 1 */}
+                          {result.config.secondary_access && (
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs text-muted-foreground">Access 2 type</span>
+                              <div className="flex gap-1">
+                                <Button
+                                  variant={(result.config.secondary_staircase_type ?? "ladder") === "stairs" ? "default" : "outline"}
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() => updateFromConfig({ secondary_staircase_type: "stairs" })}
+                                >
+                                  Stairs
+                                </Button>
+                                <Button
+                                  variant={(result.config.secondary_staircase_type ?? "ladder") === "ladder" ? "default" : "outline"}
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() => updateFromConfig({ secondary_staircase_type: "ladder" })}
+                                >
+                                  Ladder
+                                </Button>
+                              </div>
+                            </div>
+                          )}
 
                           {/* Divider */}
                           <div className="border-t pt-2" />

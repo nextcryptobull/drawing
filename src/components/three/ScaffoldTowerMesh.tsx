@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import * as THREE from "three";
 
 import type { TowerConfig } from "@/lib/part-types";
-import { computeSectionLayout, computePathLayout } from "@/lib/tower-assembler";
+import { computeSectionLayout, computePathLayout, computeCircularLayout } from "@/lib/tower-assembler";
 
 /**
  * Procedural scaffold tower assembly built from THREE primitives.
@@ -55,12 +55,14 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     disabled_platform_levels = [],
     include_ladder = false,
     staircase_type = "ladder",
+    secondary_staircase_type = "ladder",
     staircase_tower = false,
     door_opening,
     plank_width = 320,
     secondary_access = false,
     sections,
     scaffold_path,
+    circular_layout,
   } = config as TowerConfig & {
     base_type?: "jack" | "wheel" | "suspended";
     suspended_beam_length?: number;
@@ -69,12 +71,19 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     disabled_platform_levels?: number[];
     include_ladder?: boolean;
     staircase_type?: "ladder" | "stairs";
+    secondary_staircase_type?: "ladder" | "stairs";
     staircase_tower?: boolean;
     door_opening?: { bay_index: number; width: number; height: number };
     plank_width?: 320 | 230;
     secondary_access?: boolean;
     sections?: Array<{ bays: number; bay_length: number; label?: string }>;
     scaffold_path?: Array<{ bays: number; bay_length: number; turn_angle: number; label?: string }>;
+    circular_layout?: {
+      diameter_mm: number;
+      num_segments: number;
+      bay_width_mm: number;
+      label?: string;
+    };
   };
 
   // When secondary access is enabled (auto at ≥20m height/length), the primary
@@ -1358,13 +1367,323 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
     );
   };
 
+  // ─── Circular scaffold rendering ──────────────────────────────────────
+  // When circular_layout is set, render standards + ledgers + braces on
+  // two concentric rings (outer + inner) at regular angular intervals.
+  const circularPathLayout = useMemo(() => {
+    if (!circular_layout) return null;
+    return computeCircularLayout(
+      circular_layout.diameter_mm,
+      circular_layout.num_segments,
+      circular_layout.bay_width_mm
+    );
+  }, [circular_layout]);
+
+  const renderCircularScaffold = () => {
+    if (!circularPathLayout) return null;
+    const layout = circularPathLayout;
+    const railR = tubeR * 0.8;
+    const braceR = tubeR * 0.6;
+
+    return (
+      <group>
+        {/* ─── Standards (outer + inner rings) ─── */}
+        {layout.allStandards.map(([x, y], idx) => (
+          <group key={`circ-std-${idx}`} position={[x, y, 0]}>
+            {/* Vertical standard tube */}
+            <mesh
+              rotation={verticalRotation}
+              position={[0, 0, towerHeight / 2]}
+              material={materials.standard}
+              castShadow
+              receiveShadow
+            >
+              <cylinderGeometry args={[tubeR, tubeR, towerHeight, 24]} />
+            </mesh>
+            {/* Inner bore */}
+            <mesh
+              rotation={verticalRotation}
+              position={[0, 0, towerHeight / 2]}
+              material={materials.innerBore}
+            >
+              <cylinderGeometry args={[tubeID / 2, tubeID / 2, towerHeight + 1, 20]} />
+            </mesh>
+            {/* Rosettes at each lift level */}
+            {rosetteZs.map((z, ri) => (
+              <mesh
+                key={`circ-ros-${idx}-${ri}`}
+                rotation={verticalRotation}
+                position={[0, 0, z]}
+                material={materials.rosette}
+                castShadow
+              >
+                <cylinderGeometry args={[rosetteR, rosetteR, rosette_thickness, 48]} />
+              </mesh>
+            ))}
+            {/* Top spigot */}
+            <mesh
+              rotation={verticalRotation}
+              position={[0, 0, towerHeight + spigot_length / 2]}
+              material={materials.spigot}
+              castShadow
+            >
+              <cylinderGeometry args={[spigotR, spigotR, spigot_length, 24]} />
+            </mesh>
+            {/* Base (jack or wheel or suspended) */}
+            {base_type === "wheel" ? (
+              <group position={[0, 0, -180]}>
+                <mesh material={materials.wheel} castShadow>
+                  <cylinderGeometry args={[100, 100, 48, 32]} />
+                </mesh>
+              </group>
+            ) : base_type === "suspended" ? (
+              <mesh rotation={verticalRotation} position={[0, 0, towerHeight + 40]} material={materials.spigot} castShadow>
+                <cylinderGeometry args={[20, 20, 80, 16]} />
+              </mesh>
+            ) : (
+              <group position={[0, 0, 0]}>
+                <mesh rotation={verticalRotation} position={[0, 0, -base_jack_length / 2]} material={materials.baseJack} castShadow>
+                  <cylinderGeometry args={[19, 19, base_jack_length, 20]} />
+                </mesh>
+                <mesh position={[0, 0, -base_jack_length + 3]} material={materials.baseJack} castShadow receiveShadow>
+                  <boxGeometry args={[150, 150, 6]} />
+                </mesh>
+              </group>
+            )}
+            {/* Guardrail post on top */}
+            <mesh
+              rotation={[Math.PI / 2, 0, 0]}
+              position={[0, 0, towerHeight + 500]}
+              material={materials.standard}
+              castShadow
+            >
+              <cylinderGeometry args={[railR, railR, 1000, 16]} />
+            </mesh>
+          </group>
+        ))}
+
+        {/* ─── Ledgers (outer ring + inner ring + radial) ─── */}
+        {/* Outer ring ledgers: connect outer[i] → outer[i+1] (arc chord) */}
+        {/* Inner ring ledgers: connect inner[i] → inner[i+1] (arc chord) */}
+        {/* Radial ledgers: connect outer[i] → inner[i] (along radius) */}
+        {rosetteZs.map((z, liftIdx) => (
+          <group key={`circ-ledgers-L${liftIdx}`}>
+            {/* Outer ring ledgers */}
+            {layout.outerStandards.map((p1, i) => {
+              const p2 = layout.outerStandards[(i + 1) % layout.num_segments];
+              const dx = p2[0] - p1[0];
+              const dy = p2[1] - p1[1];
+              const len = Math.sqrt(dx * dx + dy * dy);
+              const midX = (p1[0] + p2[0]) / 2;
+              const midY = (p1[1] + p2[1]) / 2;
+              const angle = Math.atan2(dy, dx);
+              return (
+                <mesh
+                  key={`circ-led-outer-L${liftIdx}-${i}`}
+                  rotation={[0, 0, angle + Math.PI / 2]}
+                  position={[midX, midY, z]}
+                  material={circular_layout?.label === "REINFORCED" ? materials.reinforcedLedger : materials.ledger}
+                  castShadow
+                >
+                  <cylinderGeometry args={[ledgerR, ledgerR, len, 20]} />
+                </mesh>
+              );
+            })}
+            {/* Inner ring ledgers */}
+            {layout.innerStandards.map((p1, i) => {
+              const p2 = layout.innerStandards[(i + 1) % layout.num_segments];
+              const dx = p2[0] - p1[0];
+              const dy = p2[1] - p1[1];
+              const len = Math.sqrt(dx * dx + dy * dy);
+              const midX = (p1[0] + p2[0]) / 2;
+              const midY = (p1[1] + p2[1]) / 2;
+              const angle = Math.atan2(dy, dx);
+              return (
+                <mesh
+                  key={`circ-led-inner-L${liftIdx}-${i}`}
+                  rotation={[0, 0, angle + Math.PI / 2]}
+                  position={[midX, midY, z]}
+                  material={circular_layout?.label === "REINFORCED" ? materials.reinforcedLedger : materials.ledger}
+                  castShadow
+                >
+                  <cylinderGeometry args={[ledgerR, ledgerR, len, 20]} />
+                </mesh>
+              );
+            })}
+            {/* Radial ledgers (outer → inner at each angular position) */}
+            {layout.outerStandards.map((p1, i) => {
+              const p2 = layout.innerStandards[i];
+              const dx = p2[0] - p1[0];
+              const dy = p2[1] - p1[1];
+              const len = Math.sqrt(dx * dx + dy * dy);
+              const midX = (p1[0] + p2[0]) / 2;
+              const midY = (p1[1] + p2[1]) / 2;
+              const angle = Math.atan2(dy, dx);
+              return (
+                <mesh
+                  key={`circ-led-radial-L${liftIdx}-${i}`}
+                  rotation={[0, 0, angle + Math.PI / 2]}
+                  position={[midX, midY, z]}
+                  material={materials.ledger}
+                  castShadow
+                >
+                  <cylinderGeometry args={[ledgerR, ledgerR, len, 20]} />
+                </mesh>
+              );
+            })}
+          </group>
+        ))}
+
+        {/* ─── Diagonal braces (outer face + inner face, every 3rd bay + extremities) ─── */}
+        {include_braces && Array.from({ length: num_lifts }).map((_, k) => {
+          const z1 = k * lift_height;
+          const z2 = (k + 1) * lift_height;
+          const lastBayIdx = layout.num_segments - 1;
+          const shouldBrace = (i: number) => i === 0 || i % 3 === 0 || i === lastBayIdx;
+          const items: { from: [number, number, number]; to: [number, number, number] }[] = [];
+          // Outer ring braces
+          for (let i = 0; i < layout.num_segments; i++) {
+            if (!shouldBrace(i)) continue;
+            const p1 = layout.outerStandards[i];
+            const p2 = layout.outerStandards[(i + 1) % layout.num_segments];
+            const dir = i % 2 === 0 ? 1 : -1;
+            if (dir > 0) items.push({ from: [p1[0], p1[1], z1], to: [p2[0], p2[1], z2] });
+            else items.push({ from: [p1[0], p1[1], z2], to: [p2[0], p2[1], z1] });
+          }
+          // Inner ring braces (opposite direction)
+          for (let i = 0; i < layout.num_segments; i++) {
+            if (!shouldBrace(i)) continue;
+            const p1 = layout.innerStandards[i];
+            const p2 = layout.innerStandards[(i + 1) % layout.num_segments];
+            const dir = i % 2 === 0 ? -1 : 1;
+            if (dir > 0) items.push({ from: [p1[0], p1[1], z1], to: [p2[0], p2[1], z2] });
+            else items.push({ from: [p1[0], p1[1], z2], to: [p2[0], p2[1], z1] });
+          }
+          return items.map((b, idx) => {
+            const [fx, fy, fz] = b.from;
+            const [tx, ty, tz] = b.to;
+            const dx = tx - fx, dy = ty - fy, dz = tz - fz;
+            const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            const mx = (fx + tx) / 2, my = (fy + ty) / 2, mz = (fz + tz) / 2;
+            const dirVec = new THREE.Vector3(dx, dy, dz).normalize();
+            const quat = new THREE.Quaternion().setFromUnitVectors(
+              new THREE.Vector3(0, 1, 0),
+              dirVec
+            );
+            return (
+              <mesh
+                key={`circ-brace-L${k}-${idx}`}
+                position={[mx, my, mz]}
+                quaternion={quat}
+                material={materials.brace}
+                castShadow
+              >
+                <cylinderGeometry args={[braceR, braceR, len, 12]} />
+              </mesh>
+            );
+          });
+        })}
+
+        {/* ─── Gratings (platforms) — trapezoidal segments per bay per lift ─── */}
+        {/* For each angular segment, render a grating that spans from inner to
+            outer ring. We approximate the trapezoid with a rectangle of the
+            outer arc length × bay_width, rotated to align with the radial direction. */}
+        {include_gratings && rosetteZs.map((z, liftIdx) => {
+          if (disabled_platform_levels.includes(liftIdx + 1)) return null;
+          return layout.outerStandards.map((p1, i) => {
+            const p2 = layout.outerStandards[(i + 1) % layout.num_segments];
+            const innerP1 = layout.innerStandards[i];
+            const innerP2 = layout.innerStandards[(i + 1) % layout.num_segments];
+            // Center of the bay (average of 4 corners)
+            const cx = (p1[0] + p2[0] + innerP1[0] + innerP2[0]) / 4;
+            const cy = (p1[1] + p2[1] + innerP1[1] + innerP2[1]) / 4;
+            // Angle of the radial direction (from origin to center)
+            const radialAngle = Math.atan2(cy, cx);
+            // Length along arc (use outer arc length as approximation)
+            const arcLen = layout.bay_arc_length_mm;
+            // Width along radius = bay_width
+            const radialWidth = layout.bay_width_mm;
+            return (
+              <mesh
+                key={`circ-grating-L${liftIdx}-${i}`}
+                position={[cx, cy, z - 6]}
+                rotation={[0, 0, radialAngle]}
+                material={materials.grating}
+                receiveShadow
+                castShadow
+              >
+                <boxGeometry args={[radialWidth * 0.94, arcLen * 0.94, 8]} />
+              </mesh>
+            );
+          });
+        })}
+
+        {/* ─── Handrails (top level) — outer ring + inner ring ─── */}
+        {(() => {
+          const topZ = towerHeight;
+          const railH1 = topZ + 500;
+          const railH2 = topZ + 1000;
+          const rails: React.ReactNode[] = [];
+          [railH1, railH2].forEach((rz, ri) => {
+            // Outer ring rail (segments between adjacent outer standards)
+            layout.outerStandards.forEach((p1, i) => {
+              const p2 = layout.outerStandards[(i + 1) % layout.num_segments];
+              const dx = p2[0] - p1[0];
+              const dy = p2[1] - p1[1];
+              const len = Math.sqrt(dx * dx + dy * dy);
+              const midX = (p1[0] + p2[0]) / 2;
+              const midY = (p1[1] + p2[1]) / 2;
+              const angle = Math.atan2(dy, dx);
+              rails.push(
+                <mesh
+                  key={`circ-rail-outer-${ri}-${i}`}
+                  rotation={[0, 0, angle + Math.PI / 2]}
+                  position={[midX, midY, rz]}
+                  material={materials.standard}
+                  castShadow
+                >
+                  <cylinderGeometry args={[railR, railR, len, 16]} />
+                </mesh>
+              );
+            });
+            // Inner ring rail
+            layout.innerStandards.forEach((p1, i) => {
+              const p2 = layout.innerStandards[(i + 1) % layout.num_segments];
+              const dx = p2[0] - p1[0];
+              const dy = p2[1] - p1[1];
+              const len = Math.sqrt(dx * dx + dy * dy);
+              const midX = (p1[0] + p2[0]) / 2;
+              const midY = (p1[1] + p2[1]) / 2;
+              const angle = Math.atan2(dy, dx);
+              rails.push(
+                <mesh
+                  key={`circ-rail-inner-${ri}-${i}`}
+                  rotation={[0, 0, angle + Math.PI / 2]}
+                  position={[midX, midY, rz]}
+                  material={materials.standard}
+                  castShadow
+                >
+                  <cylinderGeometry args={[railR, railR, len, 16]} />
+                </mesh>
+              );
+            });
+          });
+          return <group>{rails}</group>;
+        })()}
+      </group>
+    );
+  };
+
   return (
     <group>
-      {/* ---- Angle scaffold (L-shape, U-shape) — when scaffold_path is set ---- */}
-      {scaffold_path && scaffold_path.length > 0 && renderAngleScaffold()}
+      {/* ---- Circular scaffold — when circular_layout is set ---- */}
+      {circular_layout && renderCircularScaffold()}
 
-      {/* ---- Linear scaffold (standard layout) — when no scaffold_path ---- */}
-      {!scaffold_path && (
+      {/* ---- Angle scaffold (L-shape, U-shape) — when scaffold_path is set ---- */}
+      {scaffold_path && scaffold_path.length > 0 && !circular_layout && renderAngleScaffold()}
+
+      {/* ---- Linear scaffold (standard layout) — when no scaffold_path and no circular_layout ---- */}
+      {!scaffold_path && !circular_layout && (
       <>
       {/* ---- Standards (vertical tubes + rosettes + spigot) ---- */}
       {standardPositions.map(([x, y], idx) => (
@@ -2199,9 +2518,10 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
       })}
 
       {/* ---- Secondary staircase (escape, last bay only, when NOT staircase_tower) ---- */}
+      {/* Uses secondary_staircase_type so Access 2 can be Stairs while Access 1 is Ladder (or vice versa) */}
       {!staircase_tower && secondary_access && Array.from({ length: num_lifts }).map((_, liftIdx) => {
         const lastBayIdx = bayLayout.bayCenters.length - 1;
-        const renderFn = staircase_type === "stairs" ? renderStairs : renderStaircaseSection;
+        const renderFn = secondary_staircase_type === "stairs" ? renderStairs : renderStaircaseSection;
         return renderFn(lastBayIdx, liftIdx, materials.ladderSecondary, "Secondary staircase (escape)", "staircase-secondary", false);
       })}
       </>

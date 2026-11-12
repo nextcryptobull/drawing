@@ -40,6 +40,9 @@ export interface BayConfig {
   include_ladder: boolean;
   /** Staircase type: 'ladder' (15° inclined, compact) or 'stairs' (proper staircase with flat treads) */
   staircase_type: "ladder" | "stairs";
+  /** Staircase type for SECONDARY access (escape) — independent of primary.
+   *  Defaults to 'ladder' if not set. */
+  secondary_staircase_type?: "ladder" | "stairs";
   /** Staircase tower mode: stairs in ALL bays (not just access bay), alternating per lift */
   staircase_tower: boolean;
   /** Door opening: creates a walk-through passage in the scaffold frame.
@@ -67,6 +70,14 @@ export interface BayConfig {
     turn_angle: number; // 0=straight, 90=right, -90=left, 180=U-turn
     label?: string;
   }>;
+  /** Optional circular scaffold layout (around tanks/towers).
+      When set, overrides sections + bays_x/bay_length_x + scaffold_path. */
+  circular_layout?: {
+    diameter_mm: number;       // outer scaffold diameter
+    num_segments: number;      // number of bays around the circle (e.g., 12)
+    bay_width_mm: number;      // scaffold width (radial depth, e.g., 2000)
+    label?: string;            // optional label (ACCESS / STAIRCASE / REINFORCED)
+  };
 }
 
 export interface PartsBom {
@@ -654,9 +665,11 @@ export function assembleTower(
     disabled_platform_levels: overrides?.disabled_platform_levels ?? [],
     include_ladder: overrides?.include_ladder ?? false,
     staircase_type: overrides?.staircase_type ?? "ladder",
+    secondary_staircase_type: overrides?.secondary_staircase_type ?? "ladder",
     staircase_tower: overrides?.staircase_tower ?? false,
     door_opening: overrides?.door_opening,
     scaffold_path: overrides?.scaffold_path,
+    circular_layout: overrides?.circular_layout,
     plank_width: overrides?.plank_width ?? 320,
     suspended_beam_length: overrides?.suspended_beam_length ?? 4000,
     secondary_access,
@@ -1459,9 +1472,11 @@ export function assemblyToTowerConfig(result: AssemblyResult) {
     disabled_platform_levels: result.config.disabled_platform_levels,
     include_ladder: result.config.include_ladder,
     staircase_type: result.config.staircase_type,
+    secondary_staircase_type: result.config.secondary_staircase_type,
     staircase_tower: result.config.staircase_tower,
     door_opening: result.config.door_opening,
     scaffold_path: result.config.scaffold_path,
+    circular_layout: result.config.circular_layout,
     plank_width: result.config.plank_width,
     suspended_beam_length: result.config.suspended_beam_length,
     secondary_access: result.config.secondary_access,
@@ -1564,11 +1579,64 @@ export function parseScaffoldRequest(text: string): ParsedScaffoldRequest | null
   const cleaned = text.trim().toLowerCase();
   if (!cleaned) return null;
 
+  // ─── Auto-detect circular scaffold requests (around tanks/towers) ───
+  // Keywords: "circular", "circulaire", "round", "tank" + diameter + segments
+  if (/\b(?:circular|circulaire|round|tank)\b/.test(cleaned)) {
+    const circ = parseCircularRequest(text);
+    if (circ) {
+      const hasAccess = /acc\u00e8s|access/.test(cleaned);
+      const hasStaircase = /staircase|straircase|escalier|stairs/.test(cleaned);
+      const hasReinforced = /renforc|reinforc/.test(cleaned);
+      // Pick label: prefer per-segment label, then auto-detect
+      let label = circ.label;
+      if (!label) {
+        if (hasStaircase) label = "STAIRCASE";
+        else if (hasAccess) label = "ACCESS";
+        else if (hasReinforced) label = "REINFORCED";
+      }
+      const includeLadder = hasAccess || hasStaircase || label === "ACCESS" || label === "STAIRCASE";
+      const stairsType = hasStaircase || label === "STAIRCASE" ? "stairs" : "ladder";
+      return {
+        sections: [{ bays: circ.num_segments, bay_length: Math.round(circ.diameter_mm * Math.PI / circ.num_segments), label: "CIRCULAR" }],
+        height: 6000,
+        width: circ.bay_width_mm,
+        overrides: {
+          circular_layout: {
+            diameter_mm: circ.diameter_mm,
+            num_segments: circ.num_segments,
+            bay_width_mm: circ.bay_width_mm,
+            label,
+          },
+          include_ladder: includeLadder,
+          secondary_access: false,
+          staircase_tower: false,
+          staircase_type: stairsType,
+          secondary_staircase_type: stairsType,
+          // Clear any stale path
+          scaffold_path: undefined,
+        },
+        parseWarnings: [
+          `Circular scaffold: ⌀${(circ.diameter_mm / 1000).toFixed(1)}m, ${circ.num_segments} segments, ${circ.bay_width_mm}mm width` +
+            (includeLadder ? `; access ${stairsType}` : "") +
+            (label === "REINFORCED" ? "; reinforced" : ""),
+        ],
+      };
+    }
+    // If circular keyword but parse failed, fall through to regular parser
+  }
+
   // ─── Auto-detect angle-scaffold requests (L-shape, U-shape, virage, turn) ───
   // If the input contains angle-scaffold keywords, route it through
   // parseScaffoldPath instead — so users can type L/U-shape strings in EITHER
   // the multi-section request field OR the dedicated path field.
-  const hasAngleKeyword = /\b(?:l[-\s]?shape|u[-\s]?shape|en\s+forme\s+de\s+[lu]|virage|turn\s+(?:left|right|droite|gauche))\b/.test(cleaned);
+  // Detects:
+  //   - L-shape / U-shape / lshape / ushape (with or without dash/space)
+  //   - "en forme de L" / "en forme de U"
+  //   - "virage" (any variant: virage droite/gauche, virage à droite, etc.)
+  //   - "turn left" / "turn right"
+  //   - "à droite" / "à gauche" (when followed by an angle)
+  //   - bare "droite 90" / "gauche 90"
+  const hasAngleKeyword = /\b(?:l[-\s]?shape|u[-\s]?shape|en\s+forme\s+de\s+[lu]|virage|tourner?|turn\s+(?:left|right|droite|gauche)|(?:[àa]\s+)?(?:droite|gauche)\s+\d+\s*°?|(?:right|left)\s+turn)\b/.test(cleaned);
   if (hasAngleKeyword) {
     const path = parseScaffoldPath(text);
     if (path && path.length > 0) {
@@ -1616,6 +1684,7 @@ export function parseScaffoldRequest(text: string): ParsedScaffoldRequest | null
           secondary_access: false,
           staircase_tower: false,
           staircase_type: stairsType,
+          secondary_staircase_type: stairsType,
         },
         parseWarnings: [
           `Angle scaffold detected: ${path.length} segments, ${totalBays} bays total` +
@@ -1876,10 +1945,14 @@ export function computePathLayout(
 /**
  * Parse a natural-language angle scaffold request.
  *
- * Supports French and English:
+ * Supports French and English, with many variants:
  *   "en forme de L: 5 baies 2.5m, virage droite 90°, 3 baies 2.5m"
+ *   "en forme de L: 5 baies 2.5m, virage à droite 90°, 3 baies 2.5m"  (with "à")
  *   "L-shape: 5 bays 2.5m, turn right 90°, 3 bays 2.5m"
- *   "en forme de U: 4 baies 2.5m, virage gauche 90°, 3 baies 2.5m, virage gauche 90°, 4 baies 2.5m"
+ *   "5 bays 2.5m, turn right 90, 3 bays 2.5m"                          (no L/U prefix)
+ *   "5 baies 2.5m, à droite 90°, 3 baies 2.5m"                         (just "à droite")
+ *   "5 baies 2.5m, droite 90°, 3 baies 2.5m"                           (just "droite")
+ *   "5 baies 2.5m, virage gauche 90°, 3 baies 2.5m, virage gauche 90°, 4 baies 2.5m"  (U-shape)
  *   "U-shape: 4 bays north, turn left 90, 3 bays, turn left 90, 4 bays south"
  *
  * Returns a scaffold_path array with bays, bay_length, and turn_angle.
@@ -1900,15 +1973,29 @@ export function parseScaffoldPath(text: string): Array<{
   const path: Array<{ bays: number; bay_length: number; turn_angle: number; label?: string }> = [];
 
   for (const part of parts) {
-    // Check if this is a turn instruction
-    const turnMatch = part.match(/(?:virage|tourner|turn)\s+(droite|right|gauche|left)\s*(\d+)?/) ||
-                      part.match(/(?:virage|turn)\s+(droite|right|gauche|left)\s*(\d+)\s*°?/);
+    // Check if this is a turn instruction. We accept MANY variants:
+    //   "virage droite 90"   / "virage gauche 90"
+    //   "virage à droite 90" / "virage à gauche 90"
+    //   "tourner à droite"   / "tourne à gauche"
+    //   "turn right 90"      / "turn left 90"
+    //   "à droite 90"        / "à gauche 90"        (no verb)
+    //   "droite 90"          / "gauche 90"           (just direction + angle)
+    //   "right turn 90"      / "left turn 90"        (reversed word order)
+    // Optional "à" / "a" / "vers la" between verb and direction.
+    // Optional "°" suffix on the angle.
+    // Default angle is 90° if omitted.
+    const turnMatch =
+      // Standard: "virage/tourner/turn + (optional à/vers la) + droite/right/gauche/left + (optional angle)"
+      part.match(/(?:virage|tourner?|turn)\s+(?:[àa]\s+|vers\s+la\s+)?(droite|right|gauche|left)\s*(\d+)?\s*°?/) ||
+      // Bare direction: "à droite 90" / "droite 90" / "right 90"
+      part.match(/(?:[àa]\s+)?(droite|right|gauche|left)\s+(\d+)\s*°?/) ||
+      // Reversed: "right turn 90" / "left turn 90"
+      part.match(/(droite|right|gauche|left)\s+(?:turn|virage)\s*(\d+)?\s*°?/);
 
     if (turnMatch) {
       const direction = turnMatch[1];
       const angle = turnMatch[2] ? parseInt(turnMatch[2]) : 90;
       const turnAngle = (direction === "droite" || direction === "right") ? angle : -angle;
-
       // Apply turn to the last segment
       if (path.length > 0) {
         path[path.length - 1].turn_angle = turnAngle;
@@ -1946,6 +2033,141 @@ export function parseScaffoldPath(text: string): Array<{
   }
 
   return path.length > 0 ? path : null;
+}
+
+// ─── CIRCULAR SCAFFOLD (around tanks/towers) ──────────────────────────
+
+/**
+ * Layout for a circular scaffold. Standards are placed on TWO concentric
+ * circles (outer + inner) at regular angular intervals. Each segment
+ * (between two adjacent angular positions) forms a bay whose arc-length
+ * on the outer circle equals bay_length_x. Ledgers connect:
+ *   - Outer ring: adjacent outer standards (along the arc)
+ *   - Inner ring: adjacent inner standards (along the arc)
+ *   - Radial: outer standard to inner standard (along the radius)
+ */
+export interface CircularLayout {
+  diameter_mm: number;          // outer scaffold diameter
+  radius_mm: number;            // outer radius = diameter / 2
+  innerRadius_mm: number;       // inner radius = outer - bay_width
+  num_segments: number;         // number of bays around the circle
+  bay_width_mm: number;         // scaffold width (radial depth)
+  bay_arc_length_mm: number;    // arc length of one bay on the outer circle
+  angle_per_segment_rad: number;// 2π / num_segments
+  // Outer ring standards (num_segments positions, [x, y])
+  outerStandards: Array<[number, number]>;
+  // Inner ring standards (num_segments positions, [x, y])
+  innerStandards: Array<[number, number]>;
+  // All standard positions (outer + inner, deduplicated at corners)
+  allStandards: Array<[number, number]>;
+}
+
+/**
+ * Compute 2D positions for a circular scaffold.
+ * Standards are placed on two concentric circles:
+ *   - Outer: at radius = diameter / 2
+ *   - Inner: at radius = outer - bay_width
+ * Each angular position has ONE outer standard + ONE inner standard.
+ * The first segment starts at angle 0 (along +X axis).
+ */
+export function computeCircularLayout(
+  diameter_mm: number,
+  num_segments: number,
+  bay_width_mm: number = 2000
+): CircularLayout {
+  const radius_mm = diameter_mm / 2;
+  const innerRadius_mm = Math.max(0, radius_mm - bay_width_mm);
+  const angle_per_segment_rad = (2 * Math.PI) / num_segments;
+  // Arc length of one bay on the outer circle
+  const bay_arc_length_mm = radius_mm * angle_per_segment_rad;
+
+  const outerStandards: Array<[number, number]> = [];
+  const innerStandards: Array<[number, number]> = [];
+  for (let i = 0; i < num_segments; i++) {
+    const angle = i * angle_per_segment_rad;
+    outerStandards.push([
+      radius_mm * Math.cos(angle),
+      radius_mm * Math.sin(angle),
+    ]);
+    innerStandards.push([
+      innerRadius_mm * Math.cos(angle),
+      innerRadius_mm * Math.sin(angle),
+    ]);
+  }
+  // Combine outer + inner (no dedup needed since they're on different radii)
+  const allStandards: Array<[number, number]> = [
+    ...outerStandards,
+    ...innerStandards,
+  ];
+
+  return {
+    diameter_mm,
+    radius_mm,
+    innerRadius_mm,
+    num_segments,
+    bay_width_mm,
+    bay_arc_length_mm,
+    angle_per_segment_rad,
+    outerStandards,
+    innerStandards,
+    allStandards,
+  };
+}
+
+/**
+ * Parse a natural-language circular scaffold request.
+ *
+ * Supports:
+ *   "circular: diameter 10m, 12 segments"        (defaults to 2m width)
+ *   "circular: diameter 10m, 12 bays, 2m width"
+ *   "circulaire: diamètre 10m, 12 baies"
+ *   "round: diameter 8m, 8 segments"
+ *   "tank: 6m diameter, 10 segments"
+ *
+ * Returns a circular_layout object.
+ */
+export function parseCircularRequest(text: string): {
+  diameter_mm: number;
+  num_segments: number;
+  bay_width_mm: number;
+  label?: string;
+} | null {
+  const cleaned = text.trim().toLowerCase();
+  if (!cleaned) return null;
+
+  // Detect circular keyword
+  const hasCircular = /\b(?:circular|circulaire|round|tank)\b/.test(cleaned);
+  if (!hasCircular) return null;
+
+  // Extract diameter (e.g., "diameter 10m" / "diamètre 10m" / "10m diameter")
+  const diameterMatch =
+    cleaned.match(/(?:diameter|diam[eè]tre)\s*(\d+\.?\d*)\s*m/) ||
+    cleaned.match(/(\d+\.?\d*)\s*m\s*(?:diameter|diam[eè]tre)/) ||
+    cleaned.match(/(\d+\.?\d*)\s*m\s*(?:de\s+)?(?:diam)/);
+  if (!diameterMatch) return null;
+  const diameter_mm = Math.round(parseFloat(diameterMatch[1]) * 1000);
+
+  // Extract number of segments/bays
+  const segMatch =
+    cleaned.match(/(\d+)\s*(?:segments?|baies?|bays?)/);
+  if (!segMatch) return null;
+  const num_segments = parseInt(segMatch[1]);
+  if (num_segments < 3) return null; // need at least 3 to form a polygon
+
+  // Extract optional width (default 2000mm)
+  let bay_width_mm = 2000;
+  const widthMatch = cleaned.match(/(?:width|largeur)\s*(\d+\.?\d*)\s*m/);
+  if (widthMatch) {
+    bay_width_mm = Math.round(parseFloat(widthMatch[1]) * 1000);
+  }
+
+  // Detect label
+  let label: string | undefined;
+  if (/accès|access/.test(cleaned)) label = "ACCESS";
+  else if (/staircase|escalier/.test(cleaned)) label = "STAIRCASE";
+  else if (/renforc|reinforc/.test(cleaned)) label = "REINFORCED";
+
+  return { diameter_mm, num_segments, bay_width_mm, label };
 }
 
 // ─── SAFETY GUARDS ────────────────────────────────────────────────────
