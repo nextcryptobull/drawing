@@ -116,10 +116,51 @@ export function TowerViewer({ config, onRemovePart, removedParts }: { config: To
     }
     const t = debounced;
     const sections = (t as { sections?: Array<{ bays: number; bay_length: number }> }).sections;
-    const towerX = sections && sections.length > 0
-      ? sections.reduce((s, sec) => s + sec.bays * sec.bay_length, 0)
-      : t.bays_x * t.bay_length_x;
-    const towerY = t.bays_y * t.bay_length_y;
+    const scaffoldPath = (t as { scaffold_path?: Array<{ bays: number; bay_length: number; turn_angle: number }> }).scaffold_path;
+    const bayLengthY = t.bay_length_y || 2000;
+
+    // For angle scaffolds (L/U-shape), the path extends in BOTH X and Y.
+    // We compute the bounding box of all path segments to get the full extent.
+    let towerX: number;
+    let towerY: number;
+    if (scaffoldPath && scaffoldPath.length > 0) {
+      // Simulate the path to get min/max X,Y extents
+      let curX = 0, curY = 0, curAngleDeg = 0;
+      let minX = 0, maxX = 0, minY = 0, maxY = 0;
+      for (const seg of scaffoldPath) {
+        const angleRad = curAngleDeg * Math.PI / 180;
+        const dirX = Math.cos(angleRad);
+        const dirY = Math.sin(angleRad);
+        const segLen = seg.bays * seg.bay_length;
+        const endX = curX + dirX * segLen;
+        const endY = curY + dirY * segLen;
+        // Include both the segment start and end in the bounding box.
+        // Also account for the perpendicular offset (bay_length_y / 2) on each side.
+        const perpHalfWidth = bayLengthY / 2;
+        const perpX = -dirY * perpHalfWidth;
+        const perpY = dirX * perpHalfWidth;
+        const candidateXs = [curX, endX, curX + perpX, endX + perpX, curX - perpX, endX - perpX];
+        const candidateYs = [curY, endY, curY + perpY, endY + perpY, curY - perpY, endY - perpY];
+        minX = Math.min(minX, ...candidateXs);
+        maxX = Math.max(maxX, ...candidateXs);
+        minY = Math.min(minY, ...candidateYs);
+        maxY = Math.max(maxY, ...candidateYs);
+        // Advance to next segment (with 50mm corner gap, like computePathLayout)
+        curX = endX + dirX * 50;
+        curY = endY + dirY * 50;
+        curAngleDeg += seg.turn_angle;
+      }
+      // towerX/towerY become the bounding-box dimensions (NOT centered at origin)
+      // but the camera frames a sphere, so we use the diagonal of the bounding box.
+      towerX = maxX - minX;
+      towerY = maxY - minY;
+    } else if (sections && sections.length > 0) {
+      towerX = sections.reduce((s, sec) => s + sec.bays * sec.bay_length, 0);
+      towerY = t.bays_y * t.bay_length_y;
+    } else {
+      towerX = t.bays_x * t.bay_length_x;
+      towerY = t.bays_y * t.bay_length_y;
+    }
 
     // bottomZ: -320 if wheel base, else -base_jack_length if jack, else 0
     const baseType = (t as { base_type?: string }).base_type;
@@ -131,6 +172,8 @@ export function TowerViewer({ config, onRemovePart, removedParts }: { config: To
     const topZ = t.num_lifts * t.lift_height + t.spigot_length + (t.include_planks ? t.plank_thickness : 0) + 1000;
 
     const height = topZ - bottomZ;
+    // For an angle scaffold, towerX/towerY are bounding-box extents, not lengths
+    // centered at origin. The framing radius uses the diagonal of the bounding box.
     const r = Math.sqrt(towerX * towerX + towerY * towerY) / 2;
     return {
       radius: Math.max(r, 200),

@@ -764,96 +764,279 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
 
   // ─── Angle scaffold path rendering ────────────────────────────────────
   // When scaffold_path is set, render standards + ledgers at 2D positions
-  // following the path (L-shape, U-shape, etc.).
+  // following the path (L-shape, U-shape, etc.). Each segment has TWO rows
+  // of standards (front + back) connected by ledgers + cross-ledgers, with
+  // diagonal braces at every 3rd bay + extremities, gratings on each lift,
+  // toeboards at platform level, and guardrails on top.
   const pathLayout = useMemo(() => {
     if (!scaffold_path || scaffold_path.length === 0) return null;
-    return computePathLayout(scaffold_path);
-  }, [scaffold_path]);
+    // Use the actual scaffold width (bay_length_y) so the path matches the
+    // linear scaffold's depth.
+    return computePathLayout(scaffold_path, bay_length_y);
+  }, [scaffold_path, bay_length_y]);
 
   const renderAngleScaffold = () => {
     if (!pathLayout) return null;
-    const railR = tubeR * 0.7;
+    const railR = tubeR * 0.8;
+    const braceR = tubeR * 0.6;
+
+    // Helper: for each segment, return the standards grid as
+    // frontRow[0..numBays] and backRow[0..numBays] (each entry [x,y]).
+    const getSegRows = (segIdx: number) => {
+      const segInfo = pathLayout!.segmentStandards[segIdx];
+      const numBays = segInfo.numBays;
+      const front = segInfo.positions.slice(0, numBays + 1);
+      const back = segInfo.positions.slice(numBays + 1);
+      return { front, back, numBays };
+    };
+
     return (
       <group>
-        {/* Standards at each path position (2 rows: front + back of each segment) */}
-        {pathLayout.standardPositions.map(([x, y], idx) => (
-          <group key={`path-std-${idx}`} position={[x, y, 0]}>
-            {/* Vertical standard tube */}
-            <mesh
-              rotation={verticalRotation}
-              position={[0, 0, towerHeight / 2]}
-              material={materials.standard}
-              castShadow
-              receiveShadow
-            >
-              <cylinderGeometry args={[tubeR, tubeR, towerHeight, 24]} />
-            </mesh>
-            {/* Rosettes at each lift level */}
-            {rosetteZs.map((z, ri) => (
+        {/* ─── Standards (vertical tubes + rosettes + base) ─── */}
+        {/* Deduplicate positions: at corners, the front row of segment N
+            may overlap with the back row of segment N+1. Use a Set keyed
+            by rounded x,y to avoid rendering identical meshes twice. */}
+        {(() => {
+          const seen = new Set<string>();
+          const uniquePositions: [number, number][] = [];
+          for (const [x, y] of pathLayout.standardPositions) {
+            const key = `${Math.round(x)}_${Math.round(y)}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              uniquePositions.push([x, y]);
+            }
+          }
+          return uniquePositions.map(([x, y], idx) => (
+            <group key={`path-std-${idx}`} position={[x, y, 0]}>
+              {/* Vertical standard tube */}
               <mesh
-                key={`path-ros-${idx}-${ri}`}
                 rotation={verticalRotation}
-                position={[0, 0, z]}
-                material={materials.rosette}
+                position={[0, 0, towerHeight / 2]}
+                material={materials.standard}
                 castShadow
+                receiveShadow
               >
-                <cylinderGeometry args={[rosetteR, rosetteR, rosette_thickness, 48]} />
+                <cylinderGeometry args={[tubeR, tubeR, towerHeight, 24]} />
               </mesh>
-            ))}
-            {/* Base (jack or wheel or suspended) */}
-            {base_type === "wheel" ? (
-              <group position={[0, 0, -180]}>
-                <mesh material={materials.wheel} castShadow>
-                  <cylinderGeometry args={[100, 100, 48, 32]} />
-                </mesh>
-              </group>
-            ) : base_type === "suspended" ? (
-              <mesh rotation={verticalRotation} position={[0, 0, towerHeight + 40]} material={materials.spigot} castShadow>
-                <cylinderGeometry args={[20, 20, 80, 16]} />
+              {/* Inner bore */}
+              <mesh
+                rotation={verticalRotation}
+                position={[0, 0, towerHeight / 2]}
+                material={materials.innerBore}
+              >
+                <cylinderGeometry args={[tubeID / 2, tubeID / 2, towerHeight + 1, 20]} />
               </mesh>
-            ) : (
-              <group position={[0, 0, 0]}>
-                <mesh rotation={verticalRotation} position={[0, 0, -base_jack_length / 2]} material={materials.baseJack} castShadow>
-                  <cylinderGeometry args={[19, 19, base_jack_length, 20]} />
-                </mesh>
-                <mesh position={[0, 0, -base_jack_length + 3]} material={materials.baseJack} castShadow receiveShadow>
-                  <boxGeometry args={[150, 150, 6]} />
-                </mesh>
-              </group>
-            )}
-          </group>
-        ))}
-        {/* Ledgers along each segment */}
-        {pathLayout.segments.map((seg, segIdx) => (
-          <group key={`path-seg-${segIdx}`}>
-            {Array.from({ length: seg.numBays }).map((_, bayIdx) => {
-              const t = (bayIdx + 0.5) / seg.numBays;
-              const mx = seg.startX + (seg.endX - seg.startX) * t;
-              const my = seg.startY + (seg.endY - seg.startY) * t;
-              const segAngle = Math.atan2(seg.dirY, seg.dirX);
-              return rosetteZs.map((z, liftIdx) => (
+              {/* Rosettes at each lift level */}
+              {rosetteZs.map((z, ri) => (
                 <mesh
-                  key={`path-ledger-${segIdx}-${bayIdx}-${liftIdx}`}
-                  rotation={[0, 0, segAngle + Math.PI / 2]}
-                  position={[mx, my, z]}
-                  material={seg.label === "REINFORCED" ? materials.reinforcedLedger : materials.ledger}
+                  key={`path-ros-${idx}-${ri}`}
+                  rotation={verticalRotation}
+                  position={[0, 0, z]}
+                  material={materials.rosette}
                   castShadow
                 >
-                  <cylinderGeometry args={[ledgerR, ledgerR, seg.bayLength, 20]} />
+                  <cylinderGeometry args={[rosetteR, rosetteR, rosette_thickness, 48]} />
                 </mesh>
-              ));
-            })}
-          </group>
-        ))}
-        {/* Gratings on each segment (at each lift level) */}
-        {include_gratings && pathLayout.segments.map((seg, segIdx) =>
-          rosetteZs.map((z, liftIdx) => {
+              ))}
+              {/* Top spigot */}
+              <mesh
+                rotation={verticalRotation}
+                position={[0, 0, towerHeight + spigot_length / 2]}
+                material={materials.spigot}
+                castShadow
+              >
+                <cylinderGeometry args={[spigotR, spigotR, spigot_length, 24]} />
+              </mesh>
+              {/* Base (jack or wheel or suspended) */}
+              {base_type === "wheel" ? (
+                <group position={[0, 0, -180]}>
+                  <mesh material={materials.wheel} castShadow>
+                    <cylinderGeometry args={[100, 100, 48, 32]} />
+                  </mesh>
+                </group>
+              ) : base_type === "suspended" ? (
+                <mesh rotation={verticalRotation} position={[0, 0, towerHeight + 40]} material={materials.spigot} castShadow>
+                  <cylinderGeometry args={[20, 20, 80, 16]} />
+                </mesh>
+              ) : (
+                <group position={[0, 0, 0]}>
+                  <mesh rotation={verticalRotation} position={[0, 0, -base_jack_length / 2]} material={materials.baseJack} castShadow>
+                    <cylinderGeometry args={[19, 19, base_jack_length, 20]} />
+                  </mesh>
+                  <mesh position={[0, 0, -base_jack_length + 3]} material={materials.baseJack} castShadow receiveShadow>
+                    <boxGeometry args={[150, 150, 6]} />
+                  </mesh>
+                </group>
+              )}
+              {/* Guardrail post (top of standard → 1000mm above top platform) */}
+              <mesh
+                rotation={[Math.PI / 2, 0, 0]}
+                position={[0, 0, towerHeight + 500]}
+                material={materials.standard}
+                castShadow
+              >
+                <cylinderGeometry args={[railR, railR, 1000, 16]} />
+              </mesh>
+            </group>
+          ));
+        })()}
+
+        {/* ─── Ledgers (front face + back face + cross-ledgers) ─── */}
+        {/* For each segment, for each lift level:
+              - Front-face ledgers: connect front[i]→front[i+1] (length = bayLength)
+              - Back-face ledgers: connect back[i]→back[i+1] (length = bayLength)
+              - Cross-ledgers: connect front[i]→back[i] at each bay boundary (length = bay_length_y) */}
+        {pathLayout.segments.map((seg, segIdx) => {
+          const { front, back, numBays } = getSegRows(segIdx);
+          const segAngle = Math.atan2(seg.dirY, seg.dirX);
+          // Cross-ledger rotation: perpendicular to segment, so same as front-face ledger
+          const crossAngle = segAngle + Math.PI / 2;
+          const isReinforced = seg.label === "REINFORCED";
+          return (
+            <group key={`path-ledgers-${segIdx}`}>
+              {/* Front-face ledgers (one per bay per lift) */}
+              {rosetteZs.map((z, liftIdx) =>
+                Array.from({ length: numBays }).map((_, bayIdx) => {
+                  const [x1, y1] = front[bayIdx];
+                  const [x2, y2] = front[bayIdx + 1];
+                  const mx = (x1 + x2) / 2;
+                  const my = (y1 + y2) / 2;
+                  return (
+                    <mesh
+                      key={`path-led-front-${segIdx}-${liftIdx}-${bayIdx}`}
+                      rotation={[0, 0, segAngle + Math.PI / 2]}
+                      position={[mx, my, z]}
+                      material={isReinforced ? materials.reinforcedLedger : materials.ledger}
+                      castShadow
+                    >
+                      <cylinderGeometry args={[ledgerR, ledgerR, seg.bayLength, 20]} />
+                    </mesh>
+                  );
+                })
+              )}
+              {/* Back-face ledgers */}
+              {rosetteZs.map((z, liftIdx) =>
+                Array.from({ length: numBays }).map((_, bayIdx) => {
+                  const [x1, y1] = back[bayIdx];
+                  const [x2, y2] = back[bayIdx + 1];
+                  const mx = (x1 + x2) / 2;
+                  const my = (y1 + y2) / 2;
+                  return (
+                    <mesh
+                      key={`path-led-back-${segIdx}-${liftIdx}-${bayIdx}`}
+                      rotation={[0, 0, segAngle + Math.PI / 2]}
+                      position={[mx, my, z]}
+                      material={isReinforced ? materials.reinforcedLedger : materials.ledger}
+                      castShadow
+                    >
+                      <cylinderGeometry args={[ledgerR, ledgerR, seg.bayLength, 20]} />
+                    </mesh>
+                  );
+                })
+              )}
+              {/* Cross-ledgers (front↔back, at each bay boundary, length = bay_length_y) */}
+              {rosetteZs.map((z, liftIdx) =>
+                Array.from({ length: numBays + 1 }).map((_, boundaryIdx) => {
+                  const [fx, fy] = front[boundaryIdx];
+                  const [bx, by] = back[boundaryIdx];
+                  const mx = (fx + bx) / 2;
+                  const my = (fy + by) / 2;
+                  return (
+                    <mesh
+                      key={`path-led-cross-${segIdx}-${liftIdx}-${boundaryIdx}`}
+                      rotation={[0, 0, segAngle]}
+                      position={[mx, my, z]}
+                      material={isReinforced ? materials.reinforcedLedger : materials.ledger}
+                      castShadow
+                    >
+                      <cylinderGeometry args={[ledgerR, ledgerR, bay_length_y, 20]} />
+                    </mesh>
+                  );
+                })
+              )}
+            </group>
+          );
+        })}
+
+        {/* ─── Diagonal braces (perimeter of each segment) ─── */}
+        {/* Rule: "Diagonals are needed at every 3rd bay and at two extremities."
+            For each segment, brace bay 0, every 3rd bay, and the last bay.
+            Braces on BOTH the front face and back face of the segment,
+            with opposite directions (so adjacent segments don't form X-patterns).
+            Braces also wrap the two segment ends (cross-face, length = bay_length_y). */}
+        {include_braces && pathLayout.segments.map((seg, segIdx) => {
+          const { front, back, numBays } = getSegRows(segIdx);
+          const lastBayIdx = numBays - 1;
+          const shouldBraceBay = (bi: number) =>
+            bi === 0 || bi % 3 === 0 || bi === lastBayIdx;
+          const items: { from: [number, number, number]; to: [number, number, number] }[] = [];
+          for (let k = 0; k < num_lifts; k++) {
+            const z1 = k * lift_height;
+            const z2 = (k + 1) * lift_height;
+            // Front face braces
+            for (let bi = 0; bi < numBays; bi++) {
+              if (!shouldBraceBay(bi)) continue;
+              const [x1, y1] = front[bi];
+              const [x2, y2] = front[bi + 1];
+              const dir = bi % 2 === 0 ? 1 : -1;
+              if (dir > 0) items.push({ from: [x1, y1, z1], to: [x2, y2, z2] });
+              else items.push({ from: [x1, y1, z2], to: [x2, y2, z1] });
+            }
+            // Back face braces (opposite direction so they form parallel, not X)
+            for (let bi = 0; bi < numBays; bi++) {
+              if (!shouldBraceBay(bi)) continue;
+              const [x1, y1] = back[bi];
+              const [x2, y2] = back[bi + 1];
+              const dir = bi % 2 === 0 ? -1 : 1;
+              if (dir > 0) items.push({ from: [x1, y1, z1], to: [x2, y2, z2] });
+              else items.push({ from: [x1, y1, z2], to: [x2, y2, z1] });
+            }
+            // Segment-end cross-face braces (at segment start AND end — the
+            // "two extremities" of each segment). These are short braces that
+            // cross the segment width (front↔back, length = bay_length_y).
+            for (const endIdx of [0, numBays] as number[]) {
+              const [fx, fy] = front[endIdx];
+              const [bx, by] = back[endIdx];
+              const dir = endIdx === 0 ? 1 : -1;
+              if (dir > 0) items.push({ from: [fx, fy, z1], to: [bx, by, z2] });
+              else items.push({ from: [fx, fy, z2], to: [bx, by, z1] });
+            }
+          }
+          return items.map((b, idx) => {
+            const [fx, fy, fz] = b.from;
+            const [tx, ty, tz] = b.to;
+            const dx = tx - fx, dy = ty - fy, dz = tz - fz;
+            const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            const mx = (fx + tx) / 2, my = (fy + ty) / 2, mz = (fz + tz) / 2;
+            // Build a quaternion that rotates the default Y-axis cylinder to (dx,dy,dz)
+            const dir = new THREE.Vector3(dx, dy, dz).normalize();
+            const quat = new THREE.Quaternion().setFromUnitVectors(
+              new THREE.Vector3(0, 1, 0),
+              dir
+            );
+            return (
+              <mesh
+                key={`path-brace-${segIdx}-${idx}`}
+                position={[mx, my, mz]}
+                quaternion={quat}
+                material={materials.brace}
+                castShadow
+              >
+                <cylinderGeometry args={[braceR, braceR, len, 12]} />
+              </mesh>
+            );
+          });
+        })}
+
+        {/* ─── Gratings (platforms) on each segment, each lift level ─── */}
+        {include_gratings && pathLayout.segments.map((seg, segIdx) => {
+          const segAngle = Math.atan2(seg.dirY, seg.dirX);
+          return rosetteZs.map((z, liftIdx) => {
             if (disabled_platform_levels.includes(liftIdx + 1)) return null;
             return Array.from({ length: seg.numBays }).map((_, bayIdx) => {
               const t = (bayIdx + 0.5) / seg.numBays;
               const mx = seg.startX + (seg.endX - seg.startX) * t;
               const my = seg.startY + (seg.endY - seg.startY) * t;
-              const segAngle = Math.atan2(seg.dirY, seg.dirX);
               return (
                 <mesh
                   key={`path-grating-${segIdx}-${liftIdx}-${bayIdx}`}
@@ -867,8 +1050,136 @@ export function ScaffoldTowerMesh({ config, onPartClick, removedParts, onRemoveP
                 </mesh>
               );
             });
-          })
-        )}
+          });
+        })}
+
+        {/* ─── Toeboards around each platform level ─── */}
+        {/* For each segment, for each platform level, render toeboards on the
+            FRONT face (perpendicular = +perp side) and BACK face (-perp side).
+            End-of-segment toeboards are skipped (gap for adjacent segment). */}
+        {include_toeboards && pathLayout.segments.map((seg, segIdx) => {
+          const segAngle = Math.atan2(seg.dirY, seg.dirX);
+          const toeboardH = 100;
+          const toeboardThk = 10;
+          return rosetteZs.map((z, levelIdx) => {
+            const gratingZ = z - 5 - 5;
+            const tz = gratingZ + toeboardH / 2;
+            const halfWidth = bay_length_y / 2;
+            // For each bay: front toeboard (at +halfWidth perp) and back toeboard (at -halfWidth perp)
+            const boards: React.ReactNode[] = [];
+            for (let bi = 0; bi < seg.numBays; bi++) {
+              const t = (bi + 0.5) / seg.numBays;
+              const mx = seg.startX + (seg.endX - seg.startX) * t;
+              const my = seg.startY + (seg.endY - seg.startY) * t;
+              // Front toeboard: at +halfWidth perpendicular offset, rotated to match segment
+              boards.push(
+                <mesh
+                  key={`path-tb-front-${segIdx}-${levelIdx}-${bi}`}
+                  position={[
+                    mx + seg.perpX * halfWidth,
+                    my + seg.perpY * halfWidth,
+                    tz,
+                  ]}
+                  rotation={[0, 0, segAngle]}
+                  material={materials.toeboard}
+                  castShadow
+                >
+                  <boxGeometry args={[seg.bayLength * 0.94, toeboardThk, toeboardH]} />
+                </mesh>
+              );
+              // Back toeboard: at -halfWidth perpendicular offset
+              boards.push(
+                <mesh
+                  key={`path-tb-back-${segIdx}-${levelIdx}-${bi}`}
+                  position={[
+                    mx - seg.perpX * halfWidth,
+                    my - seg.perpY * halfWidth,
+                    tz,
+                  ]}
+                  rotation={[0, 0, segAngle]}
+                  material={materials.toeboard}
+                  castShadow
+                >
+                  <boxGeometry args={[seg.bayLength * 0.94, toeboardThk, toeboardH]} />
+                </mesh>
+              );
+            }
+            return <group key={`path-tb-${segIdx}-${levelIdx}`}>{boards}</group>;
+          });
+        })}
+
+        {/* ─── Handrails (top level only) ─── */}
+        {/* For each segment, render:
+              - Top rail + middle rail on FRONT face (full segment length)
+              - Top rail + middle rail on BACK face (full segment length)
+              - Top rail + middle rail on each segment END (cross-face, length = bay_length_y)
+            Rails run at z = topZ+500 (middle) and z = topZ+1000 (top). */}
+        {(() => {
+          const topZ = towerHeight;
+          const railH1 = topZ + 500;
+          const railH2 = topZ + 1000;
+          const halfWidth = bay_length_y / 2;
+          const rails: React.ReactNode[] = [];
+          pathLayout.segments.forEach((seg, segIdx) => {
+            const segAngle = Math.atan2(seg.dirY, seg.dirX);
+            // Midpoint of segment (for full-length rail)
+            const midX = (seg.startX + seg.endX) / 2;
+            const midY = (seg.startY + seg.endY) / 2;
+            // Front-face rails (at +halfWidth perp offset)
+            [railH1, railH2].forEach((rz, ri) => {
+              rails.push(
+                <mesh
+                  key={`path-rail-front-${segIdx}-${ri}`}
+                  position={[
+                    midX + seg.perpX * halfWidth,
+                    midY + seg.perpY * halfWidth,
+                    rz,
+                  ]}
+                  rotation={[0, 0, segAngle + Math.PI / 2]}
+                  material={materials.standard}
+                  castShadow
+                >
+                  <cylinderGeometry args={[railR, railR, seg.numBays * seg.bayLength, 16]} />
+                </mesh>
+              );
+              // Back-face rails
+              rails.push(
+                <mesh
+                  key={`path-rail-back-${segIdx}-${ri}`}
+                  position={[
+                    midX - seg.perpX * halfWidth,
+                    midY - seg.perpY * halfWidth,
+                    rz,
+                  ]}
+                  rotation={[0, 0, segAngle + Math.PI / 2]}
+                  material={materials.standard}
+                  castShadow
+                >
+                  <cylinderGeometry args={[railR, railR, seg.numBays * seg.bayLength, 16]} />
+                </mesh>
+              );
+            });
+            // Segment-end cross-face rails (at start AND end of each segment)
+            for (const endT of [0, 1] as number[]) {
+              const ex = seg.startX + (seg.endX - seg.startX) * endT;
+              const ey = seg.startY + (seg.endY - seg.startY) * endT;
+              [railH1, railH2].forEach((rz, ri) => {
+                rails.push(
+                  <mesh
+                    key={`path-rail-end-${segIdx}-${endT}-${ri}`}
+                    position={[ex, ey, rz]}
+                    rotation={[0, 0, segAngle]}
+                    material={materials.standard}
+                    castShadow
+                  >
+                    <cylinderGeometry args={[railR, railR, bay_length_y, 16]} />
+                  </mesh>
+                );
+              });
+            }
+          });
+          return <group>{rails}</group>;
+        })()}
       </group>
     );
   };

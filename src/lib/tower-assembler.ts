@@ -1722,29 +1722,50 @@ export interface PathLayout {
     startY: number;
     endX: number;
     endY: number;
-    dirX: number; // unit direction
+    dirX: number; // unit direction along the segment
     dirY: number;
+    perpX: number; // unit direction perpendicular to segment (rotated +90°)
+    perpY: number;
+    angleDeg: number; // segment direction in degrees
     bayLength: number;
     numBays: number;
     label?: string;
   }>;
   totalBays: number;
   totalLength: number;
-  // All standard positions (X, Y) in scaffold-local coords (Z-up)
+  // All standard positions (X, Y) — TWO rows per segment (front + back,
+  // offset by `bayWidth` perpendicular to the segment direction).
+  // The grid is: for each segment, for each bay boundary (numBays+1 positions),
+  // for each of 2 rows (front=+perp, back=-perp).
   standardPositions: Array<[number, number]>;
+  // Standard positions grouped per-segment (so renderer can iterate per segment).
+  // Each entry: {segIdx, positions: [[x,y], ...]} where positions has length
+  // (numBays+1) * 2 (front row 0..numBays, then back row 0..numBays).
+  segmentStandards: Array<{
+    segIdx: number;
+    positions: Array<[number, number]>;
+    numBays: number;
+  }>;
 }
 
 /**
  * Compute 2D positions for an angled scaffold path.
  * Segments start at origin (0,0) and each subsequent segment starts where
  * the previous one ended, rotated by the accumulated turn angle.
- * Standards are separate (not shared at corners).
+ * Standards are placed in TWO rows per segment (front + back, offset by
+ * half the bay width on each side perpendicular to the segment direction).
+ * Standards at corners are NOT shared between segments.
+ *
+ * @param bayWidth The scaffold width (Y direction for linear scaffolds).
+ *                 Defaults to 2000mm.
  */
 export function computePathLayout(
-  path: Array<{ bays: number; bay_length: number; turn_angle: number; label?: string }>
+  path: Array<{ bays: number; bay_length: number; turn_angle: number; label?: string }>,
+  bayWidth: number = 2000
 ): PathLayout {
   const segments: PathLayout["segments"] = [];
   const standardPositions: Array<[number, number]> = [];
+  const segmentStandards: PathLayout["segmentStandards"] = [];
   let totalBays = 0;
   let totalLength = 0;
 
@@ -1754,17 +1775,40 @@ export function computePathLayout(
   // Direction in degrees: 0 = +X (east), 90 = +Y (north), 180 = -X, -90 = -Y
   let curAngleDeg = 0;
 
-  for (const seg of path) {
+  const halfWidth = bayWidth / 2;
+
+  for (let segIdx = 0; segIdx < path.length; segIdx++) {
+    const seg = path[segIdx];
     const angleRad = curAngleDeg * Math.PI / 180;
     const dirX = Math.cos(angleRad);
     const dirY = Math.sin(angleRad);
+    // Perpendicular direction (rotate +90°): (dirX, dirY) → (-dirY, dirX)
+    const perpX = -dirY;
+    const perpY = dirX;
     const segLen = seg.bays * seg.bay_length;
 
-    // Place standards along this segment (including start, excluding end — end is start of next)
+    const segPositions: Array<[number, number]> = [];
+    // Place standards in TWO rows along this segment.
+    // Front row: at +halfWidth perpendicular offset.
+    // Back row: at -halfWidth perpendicular offset.
+    // For each row, place standards at i = 0..numBays (numBays+1 standards).
+    // End-of-segment standards are also placed (not shared with next segment).
     for (let i = 0; i <= seg.bays; i++) {
-      const sx = curX + dirX * i * seg.bay_length;
-      const sy = curY + dirY * i * seg.bay_length;
-      standardPositions.push([sx, sy]);
+      const baseX = curX + dirX * i * seg.bay_length;
+      const baseY = curY + dirY * i * seg.bay_length;
+      const fx = baseX + perpX * halfWidth;
+      const fy = baseY + perpY * halfWidth;
+      const bx = baseX - perpX * halfWidth;
+      const by = baseY - perpY * halfWidth;
+      standardPositions.push([fx, fy]);
+      segPositions.push([fx, fy]);
+      // Avoid duplicate standards at the exact same position when the back row
+      // of one segment overlaps the front row of the next segment at a corner.
+      // We push both rows unconditionally — duplicates will be filtered by the
+      // renderer (Three.js doesn't care about overlap, and the BOM doesn't
+      // count standards from pathLayout directly).
+      standardPositions.push([bx, by]);
+      segPositions.push([bx, by]);
     }
 
     const endX = curX + dirX * segLen;
@@ -1774,15 +1818,18 @@ export function computePathLayout(
       startX: curX, startY: curY,
       endX, endY,
       dirX, dirY,
+      perpX, perpY,
+      angleDeg: curAngleDeg,
       bayLength: seg.bay_length,
       numBays: seg.bays,
       label: seg.label,
     });
+    segmentStandards.push({ segIdx, positions: segPositions, numBays: seg.bays });
 
     curX = endX;
     curY = endY;
-    // Add a small gap at the corner (so standards don't overlap)
-    curX += dirX * 50; // 50mm gap
+    // Small gap at the corner (so standards from adjacent segments don't overlap)
+    curX += dirX * 50;
     curY += dirY * 50;
 
     totalBays += seg.bays;
@@ -1792,7 +1839,7 @@ export function computePathLayout(
     curAngleDeg += seg.turn_angle;
   }
 
-  return { segments, totalBays, totalLength, standardPositions };
+  return { segments, totalBays, totalLength, standardPositions, segmentStandards };
 }
 
 /**
